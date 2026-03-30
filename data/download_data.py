@@ -1,0 +1,47 @@
+pip -q install awscli
+
+aws s3 ls s3://openfold/ --no-sign-request
+
+aws s3 cp s3://openfold/benchmarking_data/input_jsons_converted/wo_templates/fb_protein.json \
+  /content/af_subset/jsons/ --no-sign-request
+
+%%bash
+mkdir -p /content/af_subset/foldbench_msas
+
+while read t; do
+  echo "Downloading $t"
+  aws s3 cp "s3://openfold/benchmarking_data/msas/foldbench_msas/$t/" \
+            "/content/af_subset/foldbench_msas/$t/" \
+            --recursive --no-sign-request
+done < /content/af_subset/fb_targets_50.txt
+
+
+
+!aws s3 ls s3://openfold/benchmarking_data/reference_structures/ --recursive --no-sign-request | grep -Ei '7QRJ|7QRR|7QUV|7SPQ|7WR3' | head -n 50
+
+
+%%bash
+mkdir -p /content/af_subset/reference_structures
+
+while read t; do
+  pdb=$(echo "$t" | cut -d'_' -f1 | tr '[:upper:]' '[:lower:]')
+  echo "Searching structure for $pdb"
+
+  file=$(aws s3 ls s3://openfold/benchmarking_data/reference_structures/foldbench_protein/ --no-sign-request \
+    | awk '{print $4}' \
+    | grep -E "^${pdb}-assembly1_.*\.cif$" \
+    | head -n 1)
+
+  if [ -n "$file" ]; then
+    echo "Downloading $file"
+    aws s3 cp "s3://openfold/benchmarking_data/reference_structures/foldbench_protein/$file" \
+              "/content/af_subset/reference_structures/$file" \
+              --no-sign-request
+  else
+    echo "NO STRUCTURE FOUND FOR $pdb"
+  fi
+done < /content/af_subset/fb_targets_50.txt
+
+
+!ls /content/af_subset/reference_structures | head
+!ls /content/af_subset/reference_structures | wc -l

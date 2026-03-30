@@ -1,0 +1,76 @@
+import torch
+import torch.nn as nn
+import math
+from model.quaterion_to_matrix import *
+
+
+class StructureTransition(nn.Module):
+    """
+    3-layer MLP for single representation update.
+    """
+    def __init__(self, c_s=256, expansion=4, dropout=0.1):
+        super().__init__()
+        hidden = expansion * c_s
+
+        self.ln = nn.LayerNorm(c_s)
+        self.lin1 = nn.Linear(c_s, hidden)
+        self.lin2 = nn.Linear(hidden, hidden)
+        self.lin3 = nn.Linear(hidden, c_s)
+        self.act = nn.SiLU()
+        self.dropout = nn.Dropout(dropout)
+
+        nn.init.zeros_(self.lin3.weight)
+        nn.init.zeros_(self.lin3.bias)
+
+    def forward(self, s, mask=None):
+        x = self.ln(s)
+        x = self.act(self.lin1(x))
+        x = self.dropout(x)
+        x = self.act(self.lin2(x))
+        x = self.dropout(x)
+        x = self.lin3(x)
+
+        if mask is not None:
+            x = x * mask.unsqueeze(-1)
+        return x
+    
+
+class BackboneUpdate(nn.Module):
+    """
+    Predicts local frame update:
+      - dt in R^3
+      - quaternion q = [1, b, c, d], then normalize
+    """
+    def __init__(self, c_s=256):
+        super().__init__()
+        self.ln = nn.LayerNorm(c_s)
+        self.linear = nn.Linear(c_s, 6)
+
+        nn.init.zeros_(self.linear.weight)
+        nn.init.zeros_(self.linear.bias)
+
+    def forward(self, s, mask=None):
+        """
+        s: [B, L, c_s]
+        returns:
+          dR: [B, L, 3, 3]
+          dt: [B, L, 3]
+        """
+        x = self.ln(s)
+        out = self.linear(x)  # [B, L, 6]
+
+        dt = out[..., :3]
+        bcd = out[..., 3:]    # [B, L, 3]
+
+        ones = torch.ones_like(bcd[..., :1])
+        q = torch.cat([ones, bcd], dim=-1)  # [B, L, 4]
+        q = q / torch.linalg.norm(q, dim=-1, keepdim=True).clamp_min(1e-8)
+
+        dR = quaternion_to_rotation_matrix(q)
+
+        if mask is not None:
+            dt = dt * mask.unsqueeze(-1)
+            eye = torch.eye(3, device=s.device, dtype=s.dtype).view(1, 1, 3, 3)
+            dR = torch.where(mask[..., None, None].bool(), dR, eye)
+
+        return dR, dt

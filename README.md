@@ -1,4 +1,9 @@
-# AlphaFold2: A PyTorch Reconstruction
+<p align="center">
+  <img src="assets/Inital Banner.png" width="1000"/>
+</p>
+
+
+# AlphaFold2: 
 
 <div align="center">
 

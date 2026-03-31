@@ -14,16 +14,88 @@ class EvoformerBlock(nn.Module):
     """
     Canonical AlphaFold2-style Evoformer block.
 
-    Order:
-      1) MSA Row Attention with Pair Bias   -> residual on m
-      2) MSA Column Attention               -> residual on m
-      3) MSA Transition                     -> residual on m
-      4) Outer Product Mean                 -> residual on z
-      5) Triangle Multiplication Outgoing   -> residual on z
-      6) Triangle Multiplication Incoming   -> residual on z
-      7) Triangle Attention Starting Node   -> residual on z
-      8) Triangle Attention Ending Node     -> residual on z
-      9) Pair Transition                    -> residual on z
+    Order
+    -----
+    1) MSA Row Attention with Pair Bias
+    -> residual update on m
+    Uses the current pair representation z as a bias to refine the MSA
+    representation row-wise.
+
+    2) MSA Column Attention
+    -> residual update on m
+    Mixes information across MSA sequences at each residue position.
+
+    3) MSA Transition
+    -> residual update on m
+    Position-wise feed-forward transformation on the MSA representation.
+
+    4) Outer Product Mean
+    -> residual update on z
+    Main bridge from MSA space to pair space.
+    Converts information from m into pairwise signals and injects them into z.
+    Intuitively, it summarizes co-evolutionary patterns across the MSA and
+    uses them to refine residue-pair features.
+
+    5) Triangle Multiplication Outgoing
+    -> residual update on z
+    Refines pair features through triangular message passing.
+    For a target pair (i, j), the pair (i, j) is fixed and a third residue k
+    is scanned over. The update is built from relations such as (i, k) and
+    (j, k), i.e. two edges pointing toward k.
+
+    6) Triangle Multiplication Incoming
+    -> residual update on z
+    Complementary triangular message passing on z.
+    For a target pair (i, j), the pair (i, j) is fixed and a third residue k
+    is scanned over. The update is built from relations such as (k, i) and
+    (k, j), i.e. two edges coming from k.
+
+    In both triangle multiplication modules:
+    - the target pair (i, j) is fixed
+    - k is the intermediate residue that is scanned / aggregated over
+
+    7) Triangle Attention Starting Node
+    -> residual update on z
+    Triangle-aware self-attention on pair features.
+    For a target pair (i, j), z[i, j] is the pair being updated, and attention
+    is performed over relations of the form (i, k). In other words, the query
+    comes from the target pair z[i, j], while keys/values come from other pair
+    vectors z[i, k] along the same starting node i.
+
+    8) Triangle Attention Ending Node
+    -> residual update on z
+    Complementary triangle-aware self-attention on pair features.
+    For a target pair (i, j), z[i, j] is the pair being updated, and attention
+    is performed over relations of the form (k, j). The query comes from the
+    target pair z[i, j], while keys/values come from other pair vectors z[k, j]
+    along the same ending node j.
+
+    9) Pair Transition
+    -> residual update on z
+    Position-wise feed-forward transformation on the pair representation.
+
+    Summary
+    -------
+    - m is the MSA representation.
+    - z is the pair representation.
+    - Outer Product Mean is the main MSA -> pair bridge.
+    - Triangle modules refine z by reasoning over residue triples (i, j, k).
+    - In triangle attention, attention is not applied to a single pair vector alone:
+    z[i, j] is the target/query pair, and it attends over related pair vectors
+    such as z[i, k] or z[k, j].
+
+    Simplified Order
+    ----------------
+    1) MSA Row Attention with Pair Bias   -> residual on m
+    2) MSA Column Attention               -> residual on m
+    3) MSA Transition                     -> residual on m
+    4) Outer Product Mean                 -> residual on z, and serves as the
+                                            main bridge from m to z
+    5) Triangle Multiplication Outgoing   -> residual on z
+    6) Triangle Multiplication Incoming   -> residual on z
+    7) Triangle Attention Starting Node   -> residual on z
+    8) Triangle Attention Ending Node     -> residual on z
+    9) Pair Transition                    -> residual on z
     """
 
     def __init__(

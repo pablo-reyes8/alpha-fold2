@@ -1,52 +1,15 @@
-
 from model.alphafold2_full_loss import *
 
+def move_batch_to_device(batch, device: str):
+    out = {}
+    for k, v in batch.items():
+        if torch.is_tensor(v):
+            out[k] = v.to(device, non_blocking=True)
+        else:
+            out[k] = v
+    return out
 
 torch.manual_seed(11)
-
-def test_plddt_loss():
-    B, L, num_bins = 2, 12, 50
-
-    x_true = torch.randn(B, L, 3)
-    x_pred = x_true.clone()
-    mask = torch.ones(B, L)
-    mask[0, -2:] = 0.0
-
-    logits = torch.randn(B, L, num_bins)
-
-    loss_fn = PlddtLoss(num_bins=num_bins, inclusion_radius=15.0)
-    loss = loss_fn(logits, x_pred, x_true, mask=mask)
-
-    print("PlddtLoss:", loss.item())
-    assert torch.isfinite(loss), "PlddtLoss is not finite"
-    assert loss.ndim == 0, "PlddtLoss should be scalar"
-
-
-def test_torsion_loss():
-    B, L, T = 2, 10, 7
-
-    torsion_true = torch.randn(B, L, T, 2)
-    torsion_true = torsion_true / torch.linalg.norm(
-        torsion_true, dim=-1, keepdim=True
-    ).clamp_min(1e-8)
-
-    torsion_pred = torsion_true.clone()
-    torsion_mask = torch.ones(B, L, T)
-    torsion_mask[0, -3:, :] = 0.0
-
-    loss_fn = TorsionLoss()
-    loss = loss_fn(torsion_pred, torsion_true, torsion_mask)
-
-    print("TorsionLoss perfect prediction:", loss.item())
-    assert torch.isfinite(loss), "TorsionLoss is not finite"
-    assert loss.item() < 1e-7, "TorsionLoss should be ~0 for perfect prediction"
-
-    torsion_pred2 = torsion_pred + 0.1 * torch.randn_like(torsion_pred)
-    loss2 = loss_fn(torsion_pred2, torsion_true, torsion_mask)
-
-    print("TorsionLoss perturbed:", loss2.item())
-    assert loss2.item() > loss.item(), "Perturbed torsion loss should be larger"
-
 
 def random_unit_vectors(shape, device="cpu", dtype=torch.float32):
     x = torch.randn(*shape, device=device, dtype=dtype)
@@ -54,57 +17,92 @@ def random_unit_vectors(shape, device="cpu", dtype=torch.float32):
     return x
 
 
-def test_alphafold_loss_orchestrator():
-    B, L = 2, 16
+def test_real_batch_plddt_loss(loader, device="cpu"):
+    batch = next(iter(loader))
+    batch = move_batch_to_device(batch, device)
+
+    B, L, _ = batch["coords_ca"].shape
+    num_bins = 50
+
+    x_true = batch["coords_ca"]
+    x_pred = x_true.clone()                      # caso perfecto-ish
+    mask = batch["valid_res_mask"]
+    logits = torch.randn(B, L, num_bins, device=device)
+
+    loss_fn = PlddtLoss(num_bins=num_bins, inclusion_radius=15.0)
+    loss = loss_fn(logits, x_pred, x_true, mask=mask)
+
+    print("PlddtLoss (real batch):", loss.item())
+    assert torch.isfinite(loss), "PlddtLoss is not finite"
+    assert loss.ndim == 0, "PlddtLoss should be scalar"
+
+
+def test_real_batch_torsion_loss(loader, device="cpu"):
+    batch = next(iter(loader))
+    batch = move_batch_to_device(batch, device)
+
+    torsion_true = batch["torsion_true"]        # [B,L,3,2]
+    torsion_mask = batch["torsion_mask"]        # [B,L,3]
+
+    torsion_pred = torsion_true.clone()
+    loss_fn = TorsionLoss()
+    loss = loss_fn(torsion_pred, torsion_true, torsion_mask)
+
+    print("TorsionLoss perfect prediction (real batch):", loss.item())
+    assert torch.isfinite(loss), "TorsionLoss is not finite"
+    assert loss.item() < 1e-7, "TorsionLoss should be ~0 for perfect prediction"
+
+    torsion_pred2 = torsion_true + 0.1 * torch.randn_like(torsion_true)
+    torsion_pred2 = torsion_pred2 / torch.linalg.norm(
+        torsion_pred2, dim=-1, keepdim=True
+    ).clamp_min(1e-8)
+
+    loss2 = loss_fn(torsion_pred2, torsion_true, torsion_mask)
+
+    print("TorsionLoss perturbed (real batch):", loss2.item())
+    assert torch.isfinite(loss2), "Perturbed TorsionLoss is not finite"
+    assert loss2.item() > loss.item(), "Perturbed torsion loss should be larger"
+
+
+def test_real_batch_alphafold_loss_orchestrator(loader, device="cpu"):
+    batch = next(iter(loader))
+    batch = move_batch_to_device(batch, device)
+
+    B, L = batch["seq_tokens"].shape
     num_dist_bins = 64
     num_plddt_bins = 50
-    T = 7
+    T = batch["torsion_true"].shape[2]   # debería ser 3
 
-    coords_ca = torch.randn(B, L, 3)
-    coords_n = coords_ca + random_unit_vectors((B, L, 3))
-    coords_c = coords_ca + random_unit_vectors((B, L, 3))
-
-    valid_res_mask = torch.ones(B, L)
-    valid_backbone_mask = torch.ones(B, L)
-
-    valid_res_mask[1, -4:] = 0.0
-    valid_backbone_mask[1, -4:] = 0.0
-
+    # out fake, pero consistente con el batch real
     out = {
-        "R": torch.eye(3).view(1, 1, 3, 3).repeat(B, L, 1, 1),
-        "t": torch.randn(B, L, 3),
-        "distogram_logits": torch.randn(B, L, L, num_dist_bins),
-        "plddt_logits": torch.randn(B, L, num_plddt_bins),
-        "torsions": torch.randn(B, L, T, 2),
+        "R": torch.eye(3, device=device).view(1, 1, 3, 3).repeat(B, L, 1, 1),
+        "t": batch["coords_ca"].clone(),   # usar CA real como predicción fácil
+        "distogram_logits": torch.randn(B, L, L, num_dist_bins, device=device),
+        "plddt_logits": torch.randn(B, L, num_plddt_bins, device=device),
+        "torsions": batch["torsion_true"].clone(),  # predicción perfecta para torsiones
     }
 
-    out["torsions"] = out["torsions"] / torch.linalg.norm(
-        out["torsions"], dim=-1, keepdim=True
-    ).clamp_min(1e-8)
+    loss_fn = AlphaFoldLoss(
+        fape_length_scale=10.0,
+        fape_clamp_distance=10.0,
+        dist_num_bins=num_dist_bins,
+        dist_min_bin=2.0,
+        dist_max_bin=22.0,
+        plddt_num_bins=num_plddt_bins,
+        plddt_inclusion_radius=15.0,
+        w_fape=0.5,
+        w_dist=0.3,
+        w_plddt=0.01,
+        w_torsion=0.01,
+    )
 
-    torsion_true = torch.randn(B, L, T, 2)
-    torsion_true = torsion_true / torch.linalg.norm(
-        torsion_true, dim=-1, keepdim=True
-    ).clamp_min(1e-8)
-
-    torsion_mask = torch.ones(B, L, T)
-    torsion_mask[0, -2:, :] = 0.0
-
-    batch = {
-        "coords_n": coords_n,
-        "coords_ca": coords_ca,
-        "coords_c": coords_c,
-        "valid_res_mask": valid_res_mask,
-        "valid_backbone_mask": valid_backbone_mask,
-        "torsion_true": torsion_true,
-        "torsion_mask": torsion_mask,
-    }
-
-    loss_fn = AlphaFoldLoss()
     losses = loss_fn(out, batch)
 
     for k, v in losses.items():
-        print(k, v.item() if torch.is_tensor(v) and v.ndim == 0 else v)
+        if torch.is_tensor(v) and v.ndim == 0:
+            print(k, v.item())
+        else:
+            print(k, v)
 
     assert "loss" in losses
     assert torch.isfinite(losses["loss"]), "Total AlphaFold loss is not finite"
@@ -114,8 +112,23 @@ def test_alphafold_loss_orchestrator():
         assert name in losses, f"Missing {name}"
         assert torch.isfinite(losses[name]), f"{name} is not finite"
 
+    # como pusimos torsiones perfectas, debería ser casi cero
+    assert losses["torsion_loss"].item() < 1e-7, "torsion_loss should be ~0 for perfect torsion prediction"
 
-test_plddt_loss()
-test_torsion_loss()
-test_alphafold_loss_orchestrator()
-print("All new loss tests passed.")
+    # chequeos extra de shape para estar tranquilos
+    assert out["R"].shape == (B, L, 3, 3)
+    assert out["t"].shape == (B, L, 3)
+    assert out["distogram_logits"].shape == (B, L, L, num_dist_bins)
+    assert out["plddt_logits"].shape == (B, L, num_plddt_bins)
+    assert out["torsions"].shape == batch["torsion_true"].shape
+    assert T == 3, f"Expected 3 torsions, got {T}"
+
+
+# =========================
+# Run all
+# =========================
+device = 'cpu'
+test_real_batch_plddt_loss(loader, device=device)
+test_real_batch_torsion_loss(loader, device=device)
+test_real_batch_alphafold_loss_orchestrator(loader, device=device)
+print("All real-batch loss tests passed.")

@@ -51,6 +51,11 @@ class InputEmbedder(nn.Module):
         self.z_ln = nn.LayerNorm(c_z)
 
     def _make_relpos(self, L: int, device: torch.device):
+        """
+        Con esto sabemos que tan lejos esta el residuo j del i como pos embedding 
+        asi el modelo aprende cuales estan cerca en secuencia.
+        
+        """
         idx = torch.arange(L, device=device)
         rel = idx[:, None] - idx[None, :]  # [L, L]
         rel = torch.clamp(rel, -self.max_relpos, self.max_relpos)

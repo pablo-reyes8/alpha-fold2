@@ -56,6 +56,11 @@ Instead of relying on opaque data pipelines, this repository enforces a **manife
 │   ├── dataloaders.py
 │   ├── visualize_data.py
 │   └── Proteinas_secuencias.csv
+├── scripts/
+│   ├── prepare_data.py
+│   ├── inspect_data.py
+│   ├── validate_model.py
+│   └── train_model.py
 ├── model/
 ├── training/
 ├── tests/
@@ -71,6 +76,10 @@ Instead of relying on opaque data pipelines, this repository enforces a **manife
 - `data/preproces_data.py` — builds or rewrites the manifest and emits YAML summaries.
 - `data/dataloaders.py` — dataset code supporting both manifest-based and raw-folder loading.
 - `data/visualize_data.py` — command-line inspection utilities for manifests, A3M previews, and CA distance maps.
+- `scripts/prepare_data.py` — high-level CLI to download data, refresh manifests, and smoke-test dataloaders.
+- `scripts/inspect_data.py` — concise dataset inspection CLI, including batch previews and a simple 3D backbone renderer.
+- `scripts/validate_model.py` — instantiates the model stack, runs synthetic forward validation, and dispatches pytest.
+- `scripts/train_model.py` — config-driven launcher for end-to-end training runs.
 - `config/experiments/af2_poc.yaml` — lightweight proof-of-concept experiment config.
 - `config/experiments/alphafold2_full_reference.yaml` — reference values collected from AlphaFold/OpenFold-style configs.
 
@@ -92,6 +101,12 @@ pip install -r requirements.txt
 bash data/download_data.sh --targets-csv data/Proteinas_secuencias.csv
 ```
 
+Or through the repo CLI:
+
+```bash
+python3 scripts/prepare_data.py download --targets-csv data/Proteinas_secuencias.csv
+```
+
 ### 3) Rebuild the manifest with local paths
 
 ```bash
@@ -109,12 +124,59 @@ python3 -m data.visualize_data manifest-summary --manifest-csv data/Proteinas_se
 python3 -m data.visualize_data msa-preview --a3m-path data/af_subset/foldbench_msas/7qrj_A/cfdb_hits.a3m
 ```
 
+Or use the higher-level inspection scripts:
+
+```bash
+python3 scripts/inspect_data.py loader-preview --config config/experiments/af2_poc.yaml --max-samples 2
+python3 scripts/inspect_data.py protein-3d \
+  --cif-path data/af_subset/reference_structures/7qrj-assembly1_1.cif \
+  --chain-id A \
+  --output artifacts/7qrj_A_backbone.png
+```
+
 ### 5) Use the manifest in the dataset
 
 ```python
 from data.dataloaders import FoldbenchProteinDataset
 
 dataset = FoldbenchProteinDataset(manifest_csv="data/Proteinas_secuencias.csv")
+```
+
+---
+
+## CLI workflows
+
+### Prepare data and loader
+
+```bash
+python3 scripts/prepare_data.py bootstrap \
+  --data-config config/data/foldbench_subset.yaml \
+  --experiment-config config/experiments/af2_poc.yaml
+```
+
+### Validate the model stack
+
+```bash
+python3 scripts/validate_model.py instantiate --config config/experiments/af2_poc.yaml
+python3 scripts/validate_model.py forward-smoke --config config/experiments/af2_poc.yaml --device cpu
+python3 scripts/validate_model.py pytest --target tests --pytest-arg=-q
+```
+
+### Run a safe training smoke test
+
+```bash
+python3 scripts/train_model.py --config config/experiments/af2_poc.yaml --device cpu --dry-run
+```
+
+### Launch training with recycling overrides
+
+```bash
+python3 scripts/train_model.py \
+  --config config/experiments/af2_poc.yaml \
+  --device cuda \
+  --num-recycles 0 \
+  --stochastic-recycling \
+  --max-recycles 3
 ```
 
 ---
@@ -188,11 +250,11 @@ It is probably **not** the best starting point if your main goal is immediately 
 
 A realistic roadmap for this repository could include:
 
-- [ ] recurrent / recycling-style refinement passes
 - [ ] tighter end-to-end training validation
 - [ ] expanded benchmark and evaluation scripts
 - [ ] example inference notebook or script
 - [ ] reproducibility report for a reference training run
+- [ ] Visualizations for understanding AlphaFold
 
 ---
 

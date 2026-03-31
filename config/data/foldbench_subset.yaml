@@ -1,0 +1,33 @@
+metadata:
+  name: foldbench_subset_50
+  description: Foldbench subset manifest used by the notebooks and smoke tests.
+  provenance:
+    source_manifest_csv: data/Proteinas_secuencias.csv
+    source_note: The checked-in CSV was generated in Colab and stores /content paths.
+    refresh_note: Re-run data.preproces_data locally to rewrite paths for your machine.
+
+paths:
+  dataset_root: data/af_subset
+  input_manifest_csv: data/Proteinas_secuencias.csv
+  json_path: data/af_subset/jsons/fb_protein.json
+  msa_root: data/af_subset/foldbench_msas
+  cif_root: data/af_subset/reference_structures
+
+outputs:
+  manifest_csv: data/Proteinas_secuencias.csv
+  summary_yaml: data/Proteinas_secuencias.yaml
+  targets_txt: data/fb_targets_50.txt
+
+dataset:
+  a3m_filename: cfdb_hits.a3m
+  keep_only_complete_records: true
+  target_limit: 50
+  min_identity: 0.85
+
+statistics:
+  num_records: 50
+  num_complete_records: 50
+  sequence_length:
+    min: 29
+    max: 806
+    mean: 191.96

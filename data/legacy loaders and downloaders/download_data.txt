@@ -2,6 +2,11 @@ pip -q install awscli
 
 aws s3 ls s3://openfold/ --no-sign-request
 
+!mkdir -p /content/af_subset/msas
+!mkdir -p /content/af_subset/jsons
+!mkdir -p /content/af_subset/meta
+
+
 aws s3 cp s3://openfold/benchmarking_data/input_jsons_converted/wo_templates/fb_protein.json \
   /content/af_subset/jsons/ --no-sign-request
 

@@ -1,126 +1,98 @@
+from __future__ import annotations
 
-import json
+import argparse
 from pathlib import Path
-import pandas as pd
-
-json_path = Path("/content/af_subset/jsons/fb_protein.json")
-
-with open(json_path, "r") as f:
-    data = json.load(f)
-
-q = data["queries"]["7QRJ"]
-
-print("query_name:", q["query_name"])
-print("chain_ids:", q["chains"][0]["chain_ids"])
-print("sequence:")
-print(q["chains"][0]["sequence"])
-print("length:", len(q["chains"][0]["sequence"]))
-
-
-msa_path = "/content/af_subset/foldbench_msas/7qrj_A/cfdb_hits.a3m"
-
-with open(msa_path, "r") as f:
-    lines = f.readlines()
-
-print("Primeras 20 líneas:\n")
-for line in lines[:20]:
-    print(line.rstrip())
-
-
-
-msa_path = Path("/content/af_subset/foldbench_msas/7qrj_A/cfdb_hits.a3m")
-
-seqs = []
-names = []
-
-with open(msa_path, "r") as f:
-    current_name = None
-    current_seq = []
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith(">"):
-            if current_name is not None:
-                names.append(current_name)
-                seqs.append("".join(current_seq))
-            current_name = line[1:]
-            current_seq = []
-        else:
-            current_seq.append(line)
-    if current_name is not None:
-        names.append(current_name)
-        seqs.append("".join(current_seq))
-
-print("Número de secuencias en este archivo:", len(seqs))
-print("Longitud de la primera secuencia:", len(seqs[0]))
-print("\nPrimeros 5 nombres:")
-for n in names[:5]:
-    print(n)
-
-print("\nPrimeras 5 secuencias recortadas:")
-for s in seqs[:5]:
-    print(s[:120])
-
-
-import py3Dmol
-
-cif_path = "/content/af_subset/reference_structures/7qrj-assembly1_68.cif"
-
-with open(cif_path, "r") as f:
-    cif_str = f.read()
-
-view = py3Dmol.view(width=800, height=600)
-view.addModel(cif_str, "mmcif")
-view.setStyle({"cartoon": {"color": "spectrum"}})
-view.zoomTo()
-view.show()
 
 import numpy as np
+import torch
 
-from Bio.PDB.MMCIFParser import MMCIFParser
-
-parser = MMCIFParser(QUIET=True)
-structure = parser.get_structure("7qrj", "/content/af_subset/reference_structures/7qrj-assembly1_68.cif")
-
-for model in structure:
-    print("Model:", model.id)
-    for chain in model:
-        print("Chain:", chain.id)
-        residues = list(chain.get_residues())
-        print("N residuos:", len(residues))
-        break
-    break
-
-coords = []
-res_ids = []
-
-for model in structure:
-    for chain in model:
-        if chain.id == "A":
-            for residue in chain:
-                if "CA" in residue:
-                    coords.append(residue["CA"].coord)
-                    res_ids.append(residue.id)
-            break
-    break
-
-coords = np.array(coords)
-
-print("Shape coords:", coords.shape)
-print("Primeras 5 coordenadas:")
-print(coords[:10])
+from data.dataloaders import extract_chain_sequences_and_backbone, pairwise_distances, read_a3m
+from data.foldbench import load_manifest_dataframe, summarize_manifest
 
 
-import numpy as np
-import matplotlib.pyplot as plt
+def manifest_summary(manifest_csv: str | Path) -> dict:
+    manifest_df = load_manifest_dataframe(manifest_csv)
+    return summarize_manifest(manifest_df)
 
-D = np.sqrt(((coords[:, None, :] - coords[None, :, :]) ** 2).sum(-1))
 
-plt.figure(figsize=(6,6))
-plt.imshow(D)
-plt.colorbar(label="Distance (Å)")
-plt.title("Cα distance map - 7QRJ chain A")
-plt.xlabel("Residue index")
-plt.ylabel("Residue index")
-plt.show()
+def msa_preview(a3m_path: str | Path, limit: int = 5) -> dict:
+    sequences = read_a3m(a3m_path, max_msa_seqs=limit)
+    return {
+        "path": str(Path(a3m_path).expanduser()),
+        "num_sequences_previewed": len(sequences),
+        "sequence_lengths": [len(sequence) for sequence in sequences],
+        "sequences": sequences,
+    }
+
+
+def compute_distance_map(cif_path: str | Path, chain_id: str) -> np.ndarray:
+    chain_data = extract_chain_sequences_and_backbone(cif_path)
+    if chain_id not in chain_data:
+        raise KeyError(f"Chain '{chain_id}' not found in {cif_path}")
+
+    coords_ca = chain_data[chain_id]["coords_ca"]
+    coords_ca = np.nan_to_num(coords_ca, nan=0.0)
+    distance_map = pairwise_distances(torch.tensor(coords_ca, dtype=torch.float32))
+    return distance_map.numpy()
+
+
+def save_distance_map_figure(cif_path: str | Path, chain_id: str, output_path: str | Path) -> Path:
+    import matplotlib.pyplot as plt
+
+    distance_map = compute_distance_map(cif_path=cif_path, chain_id=chain_id)
+    output = Path(output_path).expanduser()
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(6, 6))
+    plt.imshow(distance_map)
+    plt.colorbar(label="Distance (A)")
+    plt.title(f"CA distance map - chain {chain_id}")
+    plt.xlabel("Residue index")
+    plt.ylabel("Residue index")
+    plt.tight_layout()
+    plt.savefig(output, dpi=200)
+    plt.close()
+
+    return output
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Inspect Foldbench data artifacts.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    summary_cmd = subparsers.add_parser("manifest-summary", help="Print a summary of a CSV manifest.")
+    summary_cmd.add_argument("--manifest-csv", required=True, type=str)
+
+    msa_cmd = subparsers.add_parser("msa-preview", help="Preview sequences stored in an A3M file.")
+    msa_cmd.add_argument("--a3m-path", required=True, type=str)
+    msa_cmd.add_argument("--limit", default=5, type=int)
+
+    dmap_cmd = subparsers.add_parser("distance-map", help="Render a CA distance map from an mmCIF file.")
+    dmap_cmd.add_argument("--cif-path", required=True, type=str)
+    dmap_cmd.add_argument("--chain-id", required=True, type=str)
+    dmap_cmd.add_argument("--output", required=True, type=str)
+
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+
+    if args.command == "manifest-summary":
+        print(manifest_summary(args.manifest_csv))
+        return
+
+    if args.command == "msa-preview":
+        print(msa_preview(args.a3m_path, limit=args.limit))
+        return
+
+    if args.command == "distance-map":
+        output = save_distance_map_figure(args.cif_path, args.chain_id, args.output)
+        print(f"[viz] saved distance map to {output}")
+        return
+
+    raise ValueError(f"Unsupported command: {args.command}")
+
+
+if __name__ == "__main__":
+    main()

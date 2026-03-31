@@ -1,0 +1,35 @@
+metadata:
+  name: foldbench_subset_50_manifest
+  description: YAML summary of the checked-in Foldbench CSV manifest.
+  source_csv: data/Proteinas_secuencias.csv
+  source_note: The CSV was generated in Colab and stores /content paths.
+
+summary:
+  records: 50
+  complete_records: 50
+  msa_available: 50
+  cif_available: 50
+  unique_chain_ids: [A, B]
+  sequence_length:
+    min: 29
+    max: 806
+    mean: 191.96
+    median: 153.5
+
+preview:
+  targets:
+    - 7QRJ
+    - 7QRR
+    - 7QUV
+    - 7QWE
+    - 7SPQ
+  longest_examples:
+    - query_name: 7WR3
+      chain_id: A
+      seq_len: 806
+    - query_name: 8A8O
+      chain_id: A
+      seq_len: 571
+    - query_name: 7XPT
+      chain_id: A
+      seq_len: 377

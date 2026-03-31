@@ -1,0 +1,87 @@
+metadata:
+  name: af2_poc
+  description: Minimal experiment copied from notebooks/train_model.ipynb.
+  status: runnable_with_current_repo
+
+seed: 42
+
+data:
+  manifest_csv: data/Proteinas_secuencias.csv
+  json_path: data/af_subset/jsons/fb_protein.json
+  msa_root: data/af_subset/foldbench_msas
+  cif_root: data/af_subset/reference_structures
+  max_msa_seqs: 128
+  min_identity: 0.85
+  loader:
+    batch_size: 2
+    shuffle: true
+
+model:
+  n_tokens: 27
+  pad_idx: 0
+  c_m: 256
+  c_z: 128
+  c_s: 256
+  max_relpos: 32
+  num_evoformer_blocks: 2
+  num_structure_blocks: 4
+  dist_bins: 64
+  plddt_bins: 50
+  n_torsions: 3
+  transition_expansion_evoformer: 2
+  transition_expansion_structure: 2
+  use_block_specific_params: false
+
+loss:
+  fape_length_scale: 10.0
+  fape_clamp_distance: 10.0
+  dist_num_bins: 64
+  dist_min_bin: 2.0
+  dist_max_bin: 22.0
+  plddt_num_bins: 50
+  plddt_inclusion_radius: 15.0
+  w_fape: 0.5
+  w_dist: 0.3
+  w_plddt: 0.01
+  w_torsion: 0.01
+
+optimizer:
+  name: AdamW
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  name: warmup_cosine
+  warmup_fraction: 0.05
+  warmup_steps_rule: max(10, int(0.05 * total_steps))
+  min_lr: 1.0e-6
+
+ema:
+  decay: 0.999
+  device: cpu
+  use_num_updates: true
+
+trainer:
+  epochs: 20
+  grad_accum_steps: 1
+  grad_clip: 1.0
+  amp_enabled: true
+  amp_dtype: bf16
+  log_every: 5
+  log_grad_norm: true
+  log_mem: true
+  monitor_name: loss
+  monitor_mode: min
+  ckpt_dir: checkpoints_af2
+  run_name: af2_poc
+  save_every: 1
+  save_last: true
+
+geometry:
+  ideal_backbone_local:
+    - [-1.458, 0.0, 0.0]
+    - [0.0, 0.0, 0.0]
+    - [0.547, 1.426, 0.0]
+    - [0.224, 2.617, 0.0]

@@ -1,0 +1,9 @@
+.git
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+.venv
+data/af_subset
+checkpoints*
+notebooks/.ipynb_checkpoints

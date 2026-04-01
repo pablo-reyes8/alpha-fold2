@@ -17,14 +17,17 @@
 
 ## Overview
 
-This repository provides a **from-scratch, modular PyTorch implementation of the core AlphaFold2 architecture**. 
+This repository provides a **from-scratch, modular PyTorch implementation of the core AlphaFold2 architecture**.
 
-While the original DeepMind release and frameworks like OpenFold are built for large-scale production, this project is engineered for **architectural transparency and research experimentation**. It breaks down the monolithic structural biology pipeline into inspectable, hackable modules, allowing researchers to study exactly how Multiple Sequence Alignments (MSA), pair representations, and geometric heads interact at the tensor level.
+While the original DeepMind release and frameworks like OpenFold are designed for large-scale production, this project is built for **architectural transparency, research experimentation, and hands-on learning**. It breaks down the structural biology pipeline into inspectable, hackable modules, allowing researchers and students to study how Multiple Sequence Alignments (MSA), pair representations, and geometric heads interact at the tensor level.
+
+It is also designed with accessibility in mind for people who do not have access to large training clusters. For that reason, we include `notebooks/Alpha_Fold.ipynb`, a complete notebook that makes it easier to explore the project end-to-end from environments such as **Google Colab** or **Kaggle**, without needing a heavy local setup.
+
+More broadly, the goal is to make this architecture genuinely accessible to study: anyone should be able to inspect, modify, and run meaningful experiments with the model, adapting its scale to the hardware they actually have rather than being excluded by the need for large training infrastructure.
 
 <p align="center">
   <img src="assets/Ia_showcase_image.png" width="800"/>
 </p>
-
 
 
 ## Architectural Focus
@@ -36,13 +39,15 @@ The implementation strictly follows the representational flow of the original pa
 * **Structure Module:** Native PyTorch implementations of **Invariant Point Attention (IPA)**, rigid body transformations, and structural loss computations (FAPE).
 * **Geometric Precision:** Robust unit testing suite specifically targeting structural losses and rotational invariants.
 
+
 ## Data & Reproducibility
 
-Instead of relying on opaque data pipelines, this repository enforces a **manifest-driven workflow**. By decoupling the dataloader from raw folder structures, experiments become inherently more reproducible.
+To make experimentation easier to reproduce, the repository follows a **manifest-based workflow**. This keeps the data pipeline more organized and makes it easier to move between local environments, notebooks, and scripted runs.
 
-* **Foldbench Integration:** Includes scripts to pull and preprocess a subset of Foldbench.
-* **Config-Driven:** Fully parameterizable experiments via YAML (model size, depth, learning rates, EMA).
-* **Inspection Tooling:** CLI utilities to sanity-check manifests, A3M files, and CA distance maps before initiating training loops.
+* **Foldbench Support:** Includes scripts to download and preprocess a subset of Foldbench.
+* **Config-Driven Experiments:** Main settings such as model size, depth, learning rate, and EMA can be adjusted through YAML files.
+* **Data Inspection Utilities:** Provides simple CLI tools to inspect manifests, preview A3M files, and visualize CA distance maps before training.
+* **Notebook-Friendly Workflow:** A complete notebook is included in `notebooks/Alpha_Fold.ipynb` so the full pipeline can also be explored interactively in Colab or Kaggle.
 
 ---
 

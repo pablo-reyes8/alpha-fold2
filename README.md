@@ -1,4 +1,9 @@
-# AlphaFold2: A PyTorch Reconstruction
+<p align="center">
+  <img src="assets/Inital Banner.png" width="1000"/>
+</p>
+
+
+# AlphaFold2: 
 
 <div align="center">
 
@@ -25,12 +30,14 @@ It is also designed with accessibility in mind for people who do not have access
 
 More broadly, the goal is to make this architecture genuinely accessible to study: anyone should be able to inspect, modify, and run meaningful experiments with the model, adapting its scale to the hardware they actually have rather than being excluded by the need for large training infrastructure.
 
-<p align="center">
-  <img src="assets/Ia_showcase_image.png" width="800"/>
-</p>
 
 
 ## Architectural Focus
+
+<p align="center">
+  <img src="assets/Ia_showcase_image.png" width="1000"/>
+</p>
+
 
 The implementation strictly follows the representational flow of the original paper, providing clean PyTorch modules for:
 

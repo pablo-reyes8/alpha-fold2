@@ -18,6 +18,7 @@ from scripts.common import (
 from scripts.inspect_data import parse_args as parse_inspect_args
 from scripts.prepare_data import parse_args as parse_prepare_args
 from scripts.train_model import parse_args as parse_train_args
+from scripts.train_parallel import parse_args as parse_train_parallel_args
 from scripts.validate_model import parse_args as parse_validate_args, run_forward_smoke
 
 
@@ -182,3 +183,21 @@ def test_train_cli_parses_training_overrides():
     assert args.dry_run is True
     assert args.stochastic_recycling is True
     assert args.max_recycles == 3
+
+
+def test_train_parallel_cli_parses_model_parallel_overrides():
+    args = parse_train_parallel_args(
+        [
+            "--config",
+            "config/experiments/af2_poc.yaml",
+            "--parallel-mode",
+            "model",
+            "--model-devices",
+            "cuda:0,cuda:1",
+            "--batch-size",
+            "1",
+        ]
+    )
+    assert args.parallel_mode == "model"
+    assert args.model_devices == "cuda:0,cuda:1"
+    assert args.batch_size == 1

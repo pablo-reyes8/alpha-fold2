@@ -8,6 +8,7 @@ scripted training outside the notebook environment.
 import torch 
 import torch.nn as nn 
 from training.chekpoints import * 
+from training.train_paralel.data_parallel import maybe_barrier, sync_epoch_stats
 from training.seeds import * 
 from training.scheduler_warmup import * 
 from training.ema import * 
@@ -40,6 +41,7 @@ def train_alphafold2(
     num_recycles: int = 0,
     stochastic_recycling: bool = False,
     max_recycles: int | None = None,
+    parallel_context=None,
 
     # checkpoint / monitoring
     ckpt_dir: str = "checkpoints",
@@ -68,6 +70,7 @@ def train_alphafold2(
     are already created externally.
     """
     os.makedirs(ckpt_dir, exist_ok=True)
+    is_main_process = True if parallel_context is None else bool(parallel_context.is_main_process)
     recycle_upper = num_recycles if max_recycles is None else int(max_recycles)
     recycle_mode = (
         f"uniform[0,{recycle_upper}]"
@@ -95,8 +98,9 @@ def train_alphafold2(
         global_step = int(resume_state["global_step"])
         best_metric = resume_state["best_metric"]
 
-        print(f"[RESUME] {resume_path}")
-        print(f"[RESUME] start_epoch={start_epoch} | global_step={global_step} | best_metric={best_metric}")
+        if is_main_process:
+            print(f"[RESUME] {resume_path}")
+            print(f"[RESUME] start_epoch={start_epoch} | global_step={global_step} | best_metric={best_metric}")
 
     # validar monitor_name
     valid_monitor_names = {
@@ -123,20 +127,21 @@ def train_alphafold2(
 
     lr_now = optimizer.param_groups[0]["lr"]
 
-    print(rule())
-    print(f"AlphaFold2-like run: {run_name}")
-    print(
-        f"Device: {device} | AMP: {amp_enabled}({amp_dtype}) | EMA: {ema_str} | "
-        f"epochs: {epochs} | lr_now: {lr_now:.2e} | grad_clip: {grad_clip} | "
-        f"recycles: {recycle_mode}")
-    print(
-        f"Monitor: {monitor_name} ({monitor_mode}) | "
-        f"start_epoch: {start_epoch} | global_step: {global_step}")
-    print(rule())
-    print(
-        f"{'ep':>3} | {'step':>8} | {'loss':>10} | {'fape':>10} | {'dist':>10} | "
-        f"{'plddt':>10} | {'tors':>10} | {'rmsd':>8} | {'tm':>8} | {'gdt':>8} | {'lr':>9} | {'time':>8}")
-    print(rule())
+    if is_main_process:
+        print(rule())
+        print(f"AlphaFold2-like run: {run_name}")
+        print(
+            f"Device: {device} | AMP: {amp_enabled}({amp_dtype}) | EMA: {ema_str} | "
+            f"epochs: {epochs} | lr_now: {lr_now:.2e} | grad_clip: {grad_clip} | "
+            f"recycles: {recycle_mode}")
+        print(
+            f"Monitor: {monitor_name} ({monitor_mode}) | "
+            f"start_epoch: {start_epoch} | global_step: {global_step}")
+        print(rule())
+        print(
+            f"{'ep':>3} | {'step':>8} | {'loss':>10} | {'fape':>10} | {'dist':>10} | "
+            f"{'plddt':>10} | {'tors':>10} | {'rmsd':>8} | {'tm':>8} | {'gdt':>8} | {'lr':>9} | {'time':>8}")
+        print(rule())
 
     # --------------------------------------------------
     # Train loop
@@ -146,6 +151,9 @@ def train_alphafold2(
 
     for epoch in range(start_epoch, epochs):
         t0 = time.time()
+        sampler = getattr(train_loader, "sampler", None)
+        if parallel_context is not None and parallel_context.distributed and hasattr(sampler, "set_epoch"):
+            sampler.set_epoch(epoch)
 
         train_stats, global_step = train_one_epoch(
             model=model,
@@ -170,46 +178,29 @@ def train_alphafold2(
             ideal_backbone_local=ideal_backbone_local,
             num_recycles=num_recycles,
             stochastic_recycling=stochastic_recycling,
-            max_recycles=max_recycles)
+            max_recycles=max_recycles,
+            is_main_process=is_main_process)
+
+        train_stats = sync_epoch_stats(train_stats, parallel_context)
 
         sec = time.time() - t0
         total_time += sec
         lr_now = optimizer.param_groups[0]["lr"]
 
-        print(
-            f"{epoch:3d} | {global_step:8d} | "
-            f"{train_stats['loss']:10.5f} | {train_stats['fape_loss']:10.5f} | {train_stats['dist_loss']:10.5f} | "
-            f"{train_stats['plddt_loss']:10.5f} | {train_stats['torsion_loss']:10.5f} | "
-            f"{train_stats['rmsd_logged']:8.3f} | {train_stats['tm_score_logged']:8.3f} | {train_stats['gdt_ts_logged']:8.3f} | "
-            f"{lr_now:9.2e} | {fmt_hms(sec):>8}")
+        if is_main_process:
+            print(
+                f"{epoch:3d} | {global_step:8d} | "
+                f"{train_stats['loss']:10.5f} | {train_stats['fape_loss']:10.5f} | {train_stats['dist_loss']:10.5f} | "
+                f"{train_stats['plddt_loss']:10.5f} | {train_stats['torsion_loss']:10.5f} | "
+                f"{train_stats['rmsd_logged']:8.3f} | {train_stats['tm_score_logged']:8.3f} | {train_stats['gdt_ts_logged']:8.3f} | "
+                f"{lr_now:9.2e} | {fmt_hms(sec):>8}")
 
         # Checkpointing
         current_metric = float(train_stats[monitor_name])
 
-        best_metric, improved = maybe_save_best_and_last(
-            save_dir=ckpt_dir,
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            scaler=scaler,
-            ema=ema,
-            epoch=epoch,
-            global_step=global_step,
-            current_metric=current_metric,
-            best_metric=best_metric,
-            metric_name=monitor_name,
-            mode=monitor_mode,
-            val_metrics=train_stats,   # aquí son train_stats; luego podrías pasar val_stats
-            config=config)
-
-        if improved:
-            print(f"└─ [BEST] improved {monitor_name} -> {best_metric:.6f}")
-
-        # optional periodic named snapshots
-        if (save_every is not None) and (save_every > 0) and ((epoch % save_every == 0) or (epoch == epochs - 1)):
-            ckpt_path = os.path.join(ckpt_dir, f"{run_name}_e{epoch:03d}.pt")
-            save_checkpoint(
-                path=ckpt_path,
+        if is_main_process:
+            best_metric, improved = maybe_save_best_and_last(
+                save_dir=ckpt_dir,
                 model=model,
                 optimizer=optimizer,
                 scheduler=scheduler,
@@ -217,23 +208,47 @@ def train_alphafold2(
                 ema=ema,
                 epoch=epoch,
                 global_step=global_step,
+                current_metric=current_metric,
                 best_metric=best_metric,
-                monitor_name=monitor_name,
-                metrics=train_stats,
-                config=config,
-                save_optimizer_state=True,
-                save_rng_state=True)
+                metric_name=monitor_name,
+                mode=monitor_mode,
+                val_metrics=train_stats,   # aquí son train_stats; luego podrías pasar val_stats
+                config=config)
 
-            print(f"└─ [CKPT] saved → {ckpt_path}")
+            if improved:
+                print(f"└─ [BEST] improved {monitor_name} -> {best_metric:.6f}")
 
-            if copy_fixed_to_drive and drive_ckpt_dir:
-                copy_ckpt_to_drive_fixed(
-                    src_path=ckpt_path,
-                    drive_dir=drive_ckpt_dir,
-                    fixed_name=fixed_drive_name)
+            # optional periodic named snapshots
+            if (save_every is not None) and (save_every > 0) and ((epoch % save_every == 0) or (epoch == epochs - 1)):
+                ckpt_path = os.path.join(ckpt_dir, f"{run_name}_e{epoch:03d}.pt")
+                save_checkpoint(
+                    path=ckpt_path,
+                    model=model,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    scaler=scaler,
+                    ema=ema,
+                    epoch=epoch,
+                    global_step=global_step,
+                    best_metric=best_metric,
+                    monitor_name=monitor_name,
+                    metrics=train_stats,
+                    config=config,
+                    save_optimizer_state=True,
+                    save_rng_state=True)
+
+                print(f"└─ [CKPT] saved → {ckpt_path}")
+
+                if copy_fixed_to_drive and drive_ckpt_dir:
+                    copy_ckpt_to_drive_fixed(
+                        src_path=ckpt_path,
+                        drive_dir=drive_ckpt_dir,
+                        fixed_name=fixed_drive_name)
+
+        maybe_barrier(parallel_context)
 
     # Final save_last
-    if save_last and (train_stats is not None):
+    if is_main_process and save_last and (train_stats is not None):
         ckpt_path = os.path.join(ckpt_dir, f"{run_name}_last_manual.pt")
         save_checkpoint(
             path=ckpt_path,
@@ -259,9 +274,12 @@ def train_alphafold2(
                 drive_dir=drive_ckpt_dir,
                 fixed_name=fixed_drive_name)
 
-    print(rule())
-    print(f"Entrenamiento finalizado en {fmt_hms(total_time)}")
-    print(rule())
+    maybe_barrier(parallel_context)
+
+    if is_main_process:
+        print(rule())
+        print(f"Entrenamiento finalizado en {fmt_hms(total_time)}")
+        print(rule())
 
     return {
         "global_step": global_step,

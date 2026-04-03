@@ -30,9 +30,11 @@ def compute_grad_norm(model) -> float:
     return total ** 0.5
 
 def gpu_mem_mb(device="cuda"):
-    if torch.cuda.is_available() and device == "cuda":
-        alloc = torch.cuda.memory_allocated() / (1024**2)
-        reserv = torch.cuda.memory_reserved() / (1024**2)
+    device_type = normalize_device_type(device)
+    if torch.cuda.is_available() and device_type == "cuda":
+        device_obj = torch.device(device)
+        alloc = torch.cuda.memory_allocated(device=device_obj) / (1024**2)
+        reserv = torch.cuda.memory_reserved(device=device_obj) / (1024**2)
         return alloc, reserv
     return 0.0, 0.0
 
@@ -89,6 +91,7 @@ def train_one_epoch(
     num_recycles: int = 0,
     stochastic_recycling: bool = False,
     max_recycles: int | None = None,
+    is_main_process: bool = True,
 ):
     """
     Train one epoch for AlphaFold2-like model.
@@ -128,7 +131,7 @@ def train_one_epoch(
     n_seen_samples = 0
     n_metric_logs = 0
 
-    if log_every:
+    if log_every and is_main_process:
         print("┆ In-epoch statistics (AlphaFold2-like)")
         print(
             "┆   {:>8} | {:>8} | {:>9} | {:>9} | {:>9} | {:>8} | {:>8} | {:>8}{}".format(
@@ -277,19 +280,20 @@ def train_one_epoch(
 
                 gn_str = f"{grad_norm:.2e}" if grad_norm is not None else "—"
 
-                print(
-                    "┆   {:8d} | {:8d} | {:9.4f} | {:9.4f} | {:9.4f} | {:8.3f} | {:8.3f} | {:8.3f} | {:>9} | {:>9} | {:7.1f}ms".format(
-                        global_step,
-                        i + 1,
-                        loss_val,
-                        float(loss_dict["fape_loss"].detach().item()),
-                        float(loss_dict["dist_loss"].detach().item()),
-                        float(metrics["rmsd"].item()),
-                        float(metrics["tm_score"].item()),
-                        float(metrics["gdt_ts"].item()),
-                        gn_str,
-                        mem_msg,
-                        dt_ms))
+                if is_main_process:
+                    print(
+                        "┆   {:8d} | {:8d} | {:9.4f} | {:9.4f} | {:9.4f} | {:8.3f} | {:8.3f} | {:8.3f} | {:>9} | {:>9} | {:7.1f}ms".format(
+                            global_step,
+                            i + 1,
+                            loss_val,
+                            float(loss_dict["fape_loss"].detach().item()),
+                            float(loss_dict["dist_loss"].detach().item()),
+                            float(metrics["rmsd"].item()),
+                            float(metrics["tm_score"].item()),
+                            float(metrics["gdt_ts"].item()),
+                            gn_str,
+                            mem_msg,
+                            dt_ms))
 
         except RuntimeError as e:
             if ("CUDA out of memory" in str(e)) and (on_oom == "skip"):
@@ -297,7 +301,8 @@ def train_one_epoch(
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                print(f"[WARN][OOM] Batch {i} omitido. Limpié cache y sigo.")
+                if is_main_process:
+                    print(f"[WARN][OOM] Batch {i} omitido. Limpié cache y sigo.")
                 optimizer.zero_grad(set_to_none=True)
                 continue
             else:

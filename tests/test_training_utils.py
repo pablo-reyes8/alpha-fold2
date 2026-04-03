@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 import training.train_alphafold2 as train_loop_module
-from training.autocast import get_effective_amp_dtype, resolve_amp_dtype
+from training.autocast import get_effective_amp_dtype, normalize_device_type, resolve_amp_dtype
 from training.chekpoints import get_resume_state, load_checkpoint, maybe_save_best_and_last, save_checkpoint
 from training.ema import EMA, ema_health
 from training.scheduler_warmup import WarmupCosineLR, build_alphafold_param_groups
@@ -29,6 +29,11 @@ def test_get_effective_amp_dtype_cpu_behavior():
     assert get_effective_amp_dtype(device="cpu", amp_dtype="bf16") == torch.bfloat16
     assert get_effective_amp_dtype(device="cpu", amp_dtype="fp16") is None
     assert get_effective_amp_dtype(device="cpu", amp_dtype="fp32") is None
+
+
+def test_normalize_device_type_collapses_indexed_strings():
+    assert normalize_device_type("cuda:1") == "cuda"
+    assert normalize_device_type(torch.device("cpu")) == "cpu"
 
 
 def test_move_batch_to_device_preserves_non_tensors():

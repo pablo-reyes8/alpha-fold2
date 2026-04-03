@@ -21,6 +21,11 @@ DTYPE_MAP = {
     "float32": torch.float32}
 
 
+def normalize_device_type(device: str | torch.device = "cuda") -> str:
+    """Collapse indexed device strings like ``cuda:1`` to their device type."""
+    return torch.device(device).type
+
+
 def resolve_amp_dtype(
     amp_dtype: str = "bf16",
     device: str = "cuda") -> torch.dtype:
@@ -63,9 +68,10 @@ def get_effective_amp_dtype(
         torch.dtype if AMP should be used
         None if AMP should be disabled / no-op
     """
-    want = resolve_amp_dtype(amp_dtype, device=device)
+    device_type = normalize_device_type(device)
+    want = resolve_amp_dtype(amp_dtype, device=device_type)
 
-    if device == "cuda":
+    if device_type == "cuda":
         if not torch.cuda.is_available():
             return None
 
@@ -80,7 +86,7 @@ def get_effective_amp_dtype(
 
         return None
 
-    if device == "cpu":
+    if device_type == "cpu":
         # CPU autocast is mostly meaningful in bf16
         if want == torch.bfloat16:
             return torch.bfloat16
@@ -102,7 +108,7 @@ def should_use_grad_scaler(
 
     effective_dtype = get_effective_amp_dtype(amp_dtype=amp_dtype, device=device)
 
-    if device == "cuda" and effective_dtype == torch.float16:
+    if normalize_device_type(device) == "cuda" and effective_dtype == torch.float16:
         return True
 
     return False
@@ -123,12 +129,14 @@ def make_grad_scaler(
     if not enabled:
         return None
 
+    device_type = normalize_device_type(device)
+
     # Newer API
     if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
         try:
             sig = inspect.signature(torch.amp.GradScaler)
             if len(sig.parameters) >= 1:
-                return torch.amp.GradScaler(device_type=device)
+                return torch.amp.GradScaler(device_type=device_type)
             return torch.amp.GradScaler()
         except Exception:
             pass
@@ -166,16 +174,17 @@ def autocast_ctx(
             yield
         return
 
+    device_type = normalize_device_type(device)
     effective_dtype = get_effective_amp_dtype(
         amp_dtype=amp_dtype,
-        device=device)
+        device=device_type)
 
     if effective_dtype is None:
         with nullcontext():
             yield
         return
 
-    if device == "cuda":
+    if device_type == "cuda":
         with torch.amp.autocast(
             device_type="cuda",
             dtype=effective_dtype,
@@ -184,7 +193,7 @@ def autocast_ctx(
             yield
         return
 
-    if device == "cpu":
+    if device_type == "cpu":
         try:
             with torch.amp.autocast(
                 device_type="cpu",

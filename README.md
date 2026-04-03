@@ -2,8 +2,7 @@
   <img src="assets/Inital Banner.png" width="1000"/>
 </p>
 
-
-# AlphaFold2: 
+# AlphaFold2:
 
 <div align="center">
 
@@ -37,7 +36,7 @@ More broadly, the goal is to make this architecture genuinely accessible to stud
 - [Repository structure](#repository-structure)
 - [Quickstart](#quickstart)
 - [Training](#training)
-- [Abliations Suite](#abliations-suite)
+- [Ablations Suite](#ablations-suite)
 - [CLI workflows](#cli-workflows)
 - [Configs](#configs)
 - [Docker](#docker)
@@ -48,30 +47,27 @@ More broadly, the goal is to make this architecture genuinely accessible to stud
 - [Acknowledgments](#acknowledgments)
 - [License](#license)
 
-
 ## Architectural Focus
 
 <p align="center">
   <img src="assets/Ia_showcase_image.png" width="1000"/>
 </p>
 
-
 The implementation strictly follows the representational flow of the original paper, providing clean PyTorch modules for:
 
-* **Representational Flow:** Explicit handling of MSA, Pair, and Single state embeddings.
-* **The Evoformer:** Fully implemented axial attention mechanisms and triangle updates for spatial reasoning.
-* **Structure Module:** Native PyTorch implementations of **Invariant Point Attention (IPA)**, rigid body transformations, and structural loss computations (FAPE).
-* **Geometric Precision:** Robust unit testing suite specifically targeting structural losses and rotational invariants.
-
+- **Representational Flow:** Explicit handling of MSA, Pair, and Single state embeddings.
+- **The Evoformer:** Fully implemented axial attention mechanisms and triangle updates for spatial reasoning.
+- **Structure Module:** Native PyTorch implementations of **Invariant Point Attention (IPA)**, rigid body transformations, and structural loss computations (FAPE).
+- **Geometric Precision:** Robust unit testing suite specifically targeting structural losses and rotational invariants.
 
 ## Data & Reproducibility
 
 To make experimentation easier to reproduce, the repository follows a **manifest-based workflow**. This keeps the data pipeline more organized and makes it easier to move between local environments, notebooks, and scripted runs.
 
-* **Foldbench Support:** Includes scripts to download and preprocess a subset of Foldbench.
-* **Config-Driven Experiments:** Main settings such as model size, depth, learning rate, and EMA can be adjusted through YAML files.
-* **Data Inspection Utilities:** Provides simple CLI tools to inspect manifests, preview A3M files, and visualize CA distance maps before training.
-* **Notebook-Friendly Workflow:** The main walkthrough notebook is [Alpha_Fold_English.ipynb](notebooks/Alpha_Fold_English.ipynb), and a local training-focused version is available in [notebooks/train_model_local.ipynb](notebooks/train_model_local.ipynb).
+- **Foldbench Support:** Includes scripts to download and preprocess a subset of Foldbench.
+- **Config-Driven Experiments:** Main settings such as model size, depth, learning rate, and EMA can be adjusted through YAML files.
+- **Data Inspection Utilities:** Provides simple CLI tools to inspect manifests, preview A3M files, and visualize CA distance maps before training.
+- **Notebook-Friendly Workflow:** The main walkthrough notebook is [Alpha_Fold_English.ipynb](notebooks/Alpha_Fold_English.ipynb), and a local training-focused version is available in [notebooks/train_model_local.ipynb](notebooks/train_model_local.ipynb).
 
 ---
 
@@ -273,7 +269,7 @@ result = train_alphafold2(
     ideal_backbone_local=ideal_backbone_local,
     ckpt_dir="checkpoints_af2",
     run_name="af2_poc")
-    
+
 ```
 
 ### CLI training
@@ -305,21 +301,22 @@ python3 scripts/train_parallel.py \
 
 The hybrid mode `--parallel-mode hybrid` is also available, but it is intended for multi-replica setups and typically needs at least 4 GPUs.
 
+### Ablations Suite
 
-### Abliations Suite
+The repository includes an opt-in ablation suite documented in [scripts/ablations/README.md](scripts/ablations/README.md). The baseline path remains unchanged: if you instantiate `AlphaFold2(...)` and `AlphaFoldLoss(...)` without `ablation=...`, every ablation switch stays off and the normal training route is preserved.
 
-The repository also includes an opt-in ablation suite documented in [scripts/ablations/README.md](scripts/ablations/README.md). The baseline path remains unchanged: if you instantiate `AlphaFold2(...)` and `AlphaFoldLoss(...)` without `ablation=...`, every ablation switch stays off and the normal training route is preserved.
+The current presets combine high-level architectural and loss interventions:
 
-The current presets combine high-level architectural and loss interventions such as:
+| Ablation     | Type         | Intervention                                     | Research Question                                 |
+| ------------ | ------------ | ------------------------------------------------ | ------------------------------------------------- |
+| **BASELINE** | —            | None                                             | Reference performance                             |
+| **AF2_1**    | Architecture | Disable pair stack + recycling                   | Does pair representation evolution matter?        |
+| **AF2_2**    | Architecture | Triangle attention disabled, multiplication kept | Which geometric update is more critical?          |
+| **AF2_3**    | Loss         | FAPE only (distogram, pLDDT, torsion disabled)   | Is FAPE sufficient for structure supervision?     |
+| **AF2_4**    | Architecture | Block-specific structure module params           | Do independent structure blocks improve learning? |
+| **AF2_5**    | Architecture | Evoformer bypass (minimal baseline)              | What is the lower-bound performance?              |
 
-- disabling the Evoformer pair stack while keeping `OuterProductMean`,
-- disabling triangle attention while preserving triangle multiplication,
-- running a pure `FAPE` loss setup,
-- untieing structure-block parameters,
-- bypassing the Evoformer trunk entirely,
-- collapsing the MSA to a single target-sequence row as an orthogonal data ablation.
-
-For the full rationale and per-preset hypotheses, see [scripts/ablations/README.md](scripts/ablations/README.md).
+For detailed rationale, hypotheses, and expected results for each preset, see [scripts/ablations/README.md](scripts/ablations/README.md).
 
 List the available presets:
 
@@ -364,7 +361,6 @@ python3 scripts/ablations/run_suite.py \
   --all \
   --output-dir artifacts/ablation_suite
 ```
-
 
 ---
 
@@ -448,9 +444,9 @@ Rather than providing a monolithic black box or a superficial tutorial, this cod
 
 **Core Principles:**
 
-* **Architectural Transparency:** Designed to be read, debugged, and mathematically verified at the tensor level. There is no hidden logic; the mapping from the original paper's equations to PyTorch modules is direct and explicit.
-* **Modular Extensibility:** Every mechanism—from the Evoformer's axial attention to the Invariant Point Attention (IPA)—is fully decoupled. Researchers can isolate, modify, or completely redesign structural modules without fighting the framework.
-* **Rigorous Prototyping:** Provides a robust, high-fidelity environment for testing novel geometric learning hypotheses, custom attention mechanisms, and alternative structural losses before scaling them to production clusters.
+- **Architectural Transparency:** Designed to be read, debugged, and mathematically verified at the tensor level. There is no hidden logic; the mapping from the original paper's equations to PyTorch modules is direct and explicit.
+- **Modular Extensibility:** Every mechanism—from the Evoformer's axial attention to the Invariant Point Attention (IPA)—is fully decoupled. Researchers can isolate, modify, or completely redesign structural modules without fighting the framework.
+- **Rigorous Prototyping:** Provides a robust, high-fidelity environment for testing novel geometric learning hypotheses, custom attention mechanisms, and alternative structural losses before scaling them to production clusters.
 
 This makes the repository a specialized tool for researchers dissecting structural biology models, engineers debugging complex 3D equivariance, and anyone focused on advancing the theoretical foundations of the AlphaFold family.
 
@@ -466,7 +462,6 @@ This project may be useful for:
 - researchers building derivatives, ablations, or teaching materials.
 
 It is probably **not** the best starting point if your main goal is immediately obtaining state-of-the-art folding performance with industrial robustness. In that case, official or mature large-scale implementations will usually be a better operational choice.
-
 
 ---
 
@@ -500,6 +495,7 @@ A suggested BibTeX entry for this repository is:
   note         = {GitHub repository. From-scratch modular PyTorch implementation of core AlphaFold2 components for research, education, and experimentation.}
 }
 ```
+
 Please also cite the foundational papers:
 
 ```bibtex

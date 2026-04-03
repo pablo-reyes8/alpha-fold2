@@ -2,11 +2,11 @@
   <img src="assets/Inital Banner.png" width="1000"/>
 </p>
 
-# AlphaFold2:
+# AlphaFold2: From Scratch
 
 <div align="center">
 
-**Dissecting geometric deep learning and structural biology representations from scratch.**
+**A modular PyTorch reconstruction of AlphaFold2 built for architectural transparency, controlled ablations, and serious geometric deep learning research.**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](#installation)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)](#installation)
@@ -15,7 +15,7 @@
 
 </div>
 
-> **🚧 Development Status:** This repository is a living research environment under active development. We are currently iterating on core architectural modules, optimizing the geometric forward pass, and expanding our structural validation suite. Updates are frequent as we refine the implementation toward full end-to-end parity with the AlphaFold2 design space.
+> **🚧 Development Status:** This repository is a living research environment under active development. We are iterating on core architectural modules, refining the geometric forward pass, and expanding the structural validation suite as we move toward a more complete and inspectable AlphaFold2 design space.
 
 ---
 
@@ -27,7 +27,7 @@ While the original DeepMind release and frameworks like OpenFold are designed fo
 
 It is also designed with accessibility in mind for people who do not have access to large training clusters. For that reason, we include [Alpha_Fold_English.ipynb](notebooks/Alpha_Fold_English.ipynb) and [Alpha_Fold_Spanish.ipynb](notebooks/Alpha_Fold_Spanish.ipynb), a complete notebook that makes it easier to explore the project end-to-end from environments such as **Google Colab** or **Kaggle**, without needing a heavy local setup.
 
-More broadly, the goal is to make this architecture genuinely accessible to study: anyone should be able to inspect, modify, and run meaningful experiments with the model, adapting its scale to the hardware they actually have rather than being excluded by the need for large training infrastructure.
+More broadly, the goal is to make this architecture genuinely accessible as an object of serious study rather than a black box reserved for large-scale infrastructure. To that end, we designed a structured ablation suite ([Ablations Suite](#ablations-suite)) so researchers and students can systematically probe, stress-test, and reinterpret the behavior of a model that is otherwise exceptionally complex and abstract. The idea is not only to run AlphaFold2 components at a scale compatible with the hardware people actually have, but to make it easy to manipulate the architecture, isolate its mechanisms, and turn experimentation itself into a practical route toward understanding.
 
 ## Index
 
@@ -130,7 +130,6 @@ To make experimentation easier to reproduce, the repository follows a **manifest
 - [scripts/train_model.py](scripts/train_model.py) — standard config-driven single-device training launcher.
 - [scripts/train_parallel.py](scripts/train_parallel.py) — multi-GPU launcher for DDP, model parallelism, and hybrid setups.
 - [scripts/train_ablation.py](scripts/train_ablation.py) — single-device launcher for named architecture and loss ablations.
-- [scripts/train_ablation_parallel.py](scripts/train_ablation_parallel.py) — multi-GPU launcher for the same ablation presets.
 - [scripts/ablations/run_suite.py](scripts/ablations/run_suite.py) — runs multiple presets sequentially and exports a comparison table.
 - [scripts/ablations/README.md](scripts/ablations/README.md) — detailed documentation for the proposed ablation suite and each preset.
 

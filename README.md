@@ -110,9 +110,6 @@ To make experimentation easier to reproduce, the repository follows a **manifest
 - [training/train_paralel/model_parallel.py](training/train_paralel/model_parallel.py) — two-stage model-parallel wrapper for splitting AlphaFold2 across GPUs.
 - [scripts/train_model.py](scripts/train_model.py) — standard config-driven single-device training launcher.
 - [scripts/train_parallel.py](scripts/train_parallel.py) — multi-GPU launcher for DDP, model parallelism, and hybrid setups.
-- [config/experiments/af2_poc.yaml](config/experiments/af2_poc.yaml) — lightweight proof-of-concept experiment config.
-- [config/experiments/alphafold2_full_reference.yaml](config/experiments/alphafold2_full_reference.yaml) — broader AlphaFold/OpenFold-style reference config.
-- [notebooks/Alpha_Fold_Spanish.ipynb](notebooks/Alpha_Fold_Spanish.ipynb) — end-to-end interactive walkthrough for Colab or local exploration.
 
 ### Bundled test data
 

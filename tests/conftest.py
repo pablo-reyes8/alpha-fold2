@@ -1,4 +1,8 @@
+"""Provide shared pytest fixtures for AlphaFold model, loss, and training smoke tests."""
+
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 import torch
@@ -112,3 +116,109 @@ def toy_criterion():
         w_plddt=0.01,
         w_torsion=0.01,
     )
+
+
+@pytest.fixture
+def loader(toy_batch):
+    """Provide a minimal iterable loader for legacy loss smoke tests."""
+    return [toy_batch]
+
+
+def _test_file_name(request) -> str:
+    return Path(str(request.fspath)).name
+
+
+@pytest.fixture
+def batch(request):
+    """Build synthetic batches for legacy module tests without editing their signatures."""
+    test_file = _test_file_name(request)
+
+    if test_file == "test_ipa.py":
+        from tests.test_ipa import make_fake_ipa_batch
+
+        return make_fake_ipa_batch(B=2, L=32, c_s=256, c_z=128, device="cpu")
+
+    if test_file == "test_opm.py":
+        from tests.test_helpers import make_fake_msa_batch
+
+        return make_fake_msa_batch(B=2, N_msa=16, L=32, c_m=256, device="cpu")
+
+    if test_file == "test_row_colum_attention.py":
+        from tests.test_row_colum_attention import make_fake_msa_pair_batch
+
+        return make_fake_msa_pair_batch(B=2, N=16, L=32, c_m=256, c_z=128, device="cpu")
+
+    if test_file == "test_triangle_attention.py":
+        from tests.test_triangle_attention import make_fake_pair_batch
+
+        return make_fake_pair_batch(B=2, L=32, c_z=128, device="cpu")
+
+    if test_file == "test_triangle_multiplication.py":
+        from tests.test_triangle_multiplication import make_fake_pair_batch
+
+        return make_fake_pair_batch(B=2, L=32, c_z=128, device="cpu")
+
+    raise LookupError(f"No shared batch fixture is configured for {test_file}.")
+
+
+@pytest.fixture
+def module(request):
+    """Instantiate legacy modules for pytest-collected architecture tests."""
+    test_file = _test_file_name(request)
+    test_name = request.function.__name__
+
+    if test_file == "test_ipa.py":
+        from model.invariant_point_attention import InvariantPointAttention
+
+        return InvariantPointAttention(
+            c_s=256,
+            c_z=128,
+            num_heads=8,
+            c_hidden=32,
+            num_qk_points=4,
+            num_v_points=8,
+        ).to("cpu")
+
+    if test_file == "test_opm.py":
+        from model.outer_product_mean import OuterProductMean
+
+        return OuterProductMean(c_m=256, c_hidden=32, c_z=128).to("cpu")
+
+    if test_file == "test_row_colum_attention.py":
+        if test_name.startswith("test_msa_row_attention_"):
+            from model.msa_row_attention import MSARowAttentionWithPairBias
+
+            return MSARowAttentionWithPairBias(
+                c_m=256,
+                c_z=128,
+                num_heads=8,
+                c_hidden=32,
+            ).to("cpu")
+
+        from model.msa_colum_attention import MSAColumnAttention
+
+        return MSAColumnAttention(
+            c_m=256,
+            num_heads=8,
+            c_hidden=32,
+        ).to("cpu")
+
+    if test_file == "test_triangle_attention.py":
+        from model.triange_attention import TriangleAttentionStartingNode
+
+        return TriangleAttentionStartingNode(
+            c_z=128,
+            num_heads=4,
+            c_hidden=32,
+        ).to("cpu")
+
+    if test_file == "test_triangle_multiplication.py":
+        from model.triangle_multiplication import TriangleMultiplicationOutgoing
+
+        return TriangleMultiplicationOutgoing(
+            c_z=128,
+            c_hidden=128,
+            dropout=0.1,
+        ).to("cpu")
+
+    raise LookupError(f"No shared module fixture is configured for {test_file}.")

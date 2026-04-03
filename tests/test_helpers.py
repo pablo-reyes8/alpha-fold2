@@ -1,13 +1,10 @@
+"""Collect reusable tensor assertions and silent test-runner helpers for architecture tests."""
+
 import torch
-import copy
 import traceback
 from dataclasses import dataclass
-from typing import List
 from typing import Callable, List
 
-# =========================================================
-# Fake batch for AlphaFold-like shapes
-# =========================================================
 torch.manual_seed(11)
 
 
@@ -67,6 +64,9 @@ class TestResult:
     name: str
     passed: bool
     message: str = ""
+
+
+TestResult.__test__ = False
 
 
 def run_test_silent(name: str, fn: Callable[[], None]) -> TestResult:

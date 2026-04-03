@@ -1,3 +1,5 @@
+"""Check that the input embedder emits consistent AlphaFold feature shapes and masks."""
+
 from __future__ import annotations
 
 import torch

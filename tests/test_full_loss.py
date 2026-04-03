@@ -1,3 +1,5 @@
+"""Exercise the full AlphaFold loss orchestrator on real-batch fixtures and synthetic tensors."""
+
 import torch
 import pytest
 
@@ -12,136 +14,72 @@ def move_batch_to_device(batch, device: str):
             out[k] = v
     return out
 
+torch.manual_seed(11)
 
-# =========================================================
-# Helpers
-# =========================================================
-def _get_real_batch(loader, device="cpu"):
+def random_unit_vectors(shape, device="cpu", dtype=torch.float32):
+    x = torch.randn(*shape, device=device, dtype=dtype)
+    x = x / torch.linalg.norm(x, dim=-1, keepdim=True).clamp_min(1e-8)
+    return x
+
+def test_real_batch_plddt_loss(loader, device="cpu"):
     batch = next(iter(loader))
     batch = move_batch_to_device(batch, device)
-    return batch
 
-
-def _assert_scalar_finite(x, name="tensor"):
-    assert torch.is_tensor(x), f"{name} must be a tensor"
-    assert x.ndim == 0, f"{name} must be scalar, got shape {tuple(x.shape)}"
-    assert torch.isfinite(x), f"{name} is not finite"
-
-
-def _make_fake_loss_outputs(batch, device="cpu", num_dist_bins=64, num_plddt_bins=50):
-    """
-    Construye outputs fake pero consistentes con el batch real,
-    pensados para probar AlphaFoldLoss sin depender del forward real.
-    """
-    B, L = batch["seq_tokens"].shape
-
-    out = {
-        "R": torch.eye(3, device=device).view(1, 1, 3, 3).repeat(B, L, 1, 1),
-        "t": batch["coords_ca"].clone(),  # pred fácil: usar CA real
-        "distogram_logits": torch.randn(B, L, L, num_dist_bins, device=device),
-        "plddt_logits": torch.randn(B, L, num_plddt_bins, device=device),
-        "torsions": batch["torsion_true"].clone(),  # predicción perfecta
-    }
-    return out
-
-
-# =========================================================
-# Fixtures
-# =========================================================
-@pytest.fixture
-def device():
-    return "cpu"
-
-
-@pytest.fixture
-def real_batch(loader, device):
-    torch.manual_seed(11)
-    return _get_real_batch(loader, device=device)
-
-
-# =========================================================
-# Tests: individual losses on real batch
-# =========================================================
-def test_plddt_loss_real_batch_smoke(real_batch, device):
-    """
-    Evalúa PlddtLoss directamente sobre un batch real.
-    No depende del forward del modelo.
-    """
-    batch = real_batch
     B, L, _ = batch["coords_ca"].shape
     num_bins = 50
 
     x_true = batch["coords_ca"]
-    x_pred = x_true.clone()  # caso perfecto-ish geométricamente
+    x_pred = x_true.clone()                      # caso perfecto-ish
     mask = batch["valid_res_mask"]
-
     logits = torch.randn(B, L, num_bins, device=device)
 
-    loss_fn = PlddtLoss(
-        num_bins=num_bins,
-        inclusion_radius=15.0,
-    )
+    loss_fn = PlddtLoss(num_bins=num_bins, inclusion_radius=15.0)
     loss = loss_fn(logits, x_pred, x_true, mask=mask)
 
-    print(f"\nPlddtLoss (real batch): {loss.item():.6f}")
-    _assert_scalar_finite(loss, "plddt_loss")
+    assert torch.isfinite(loss), "PlddtLoss is not finite"
+    assert loss.ndim == 0, "PlddtLoss should be scalar"
 
+def test_real_batch_torsion_loss(loader, device="cpu"):
+    batch = next(iter(loader))
+    batch = move_batch_to_device(batch, device)
 
-def test_torsion_loss_real_batch_perfect_and_perturbed(real_batch):
-    """
-    Evalúa TorsionLoss en dos escenarios:
-    1) predicción perfecta -> pérdida ~ 0
-    2) predicción perturbada -> pérdida mayor
-    """
-    batch = real_batch
-    torsion_true = batch["torsion_true"]   # [B, L, T, 2]
-    torsion_mask = batch["torsion_mask"]   # [B, L, T]
+    torsion_true = batch["torsion_true"]        # [B,L,3,2]
+    torsion_mask = batch["torsion_mask"]        # [B,L,3]
 
-    loss_fn = TorsionLoss()
-
-    # caso perfecto
     torsion_pred = torsion_true.clone()
+    loss_fn = TorsionLoss()
     loss = loss_fn(torsion_pred, torsion_true, torsion_mask)
 
-    print(f"\nTorsionLoss perfect prediction (real batch): {loss.item():.10f}")
-    _assert_scalar_finite(loss, "torsion_loss_perfect")
+    assert torch.isfinite(loss), "TorsionLoss is not finite"
     assert loss.item() < 1e-7, "TorsionLoss should be ~0 for perfect prediction"
 
-    # caso perturbado
-    torsion_pred_pert = torsion_true + 0.1 * torch.randn_like(torsion_true)
-    torsion_pred_pert = torsion_pred_pert / torch.linalg.norm(
-        torsion_pred_pert, dim=-1, keepdim=True
+    torsion_pred2 = torsion_true + 0.1 * torch.randn_like(torsion_true)
+    torsion_pred2 = torsion_pred2 / torch.linalg.norm(
+        torsion_pred2, dim=-1, keepdim=True
     ).clamp_min(1e-8)
 
-    loss_pert = loss_fn(torsion_pred_pert, torsion_true, torsion_mask)
+    loss2 = loss_fn(torsion_pred2, torsion_true, torsion_mask)
 
-    print(f"TorsionLoss perturbed (real batch): {loss_pert.item():.10f}")
-    _assert_scalar_finite(loss_pert, "torsion_loss_perturbed")
-    assert loss_pert.item() > loss.item(), (
-        "Perturbed torsion loss should be larger than perfect torsion loss"
-    )
+    assert torch.isfinite(loss2), "Perturbed TorsionLoss is not finite"
+    assert loss2.item() > loss.item(), "Perturbed torsion loss should be larger"
 
+def test_real_batch_alphafold_loss_orchestrator(loader, device="cpu"):
+    batch = next(iter(loader))
+    batch = move_batch_to_device(batch, device)
 
-# =========================================================
-# Test: full AlphaFoldLoss orchestrator on real batch
-# =========================================================
-def test_alphafold_loss_orchestrator_real_batch(real_batch, device):
-    """
-    Prueba AlphaFoldLoss completo sobre un batch real, pero con outputs fake
-    consistentes. Esto valida el contrato del criterion sin depender del model forward.
-    """
-    batch = real_batch
-
+    B, L = batch["seq_tokens"].shape
     num_dist_bins = 64
     num_plddt_bins = 50
-    T = batch["torsion_true"].shape[2]
+    T = batch["torsion_true"].shape[2]   # debería ser 3
 
-    out = _make_fake_loss_outputs(
-        batch=batch,
-        device=device,
-        num_dist_bins=num_dist_bins,
-        num_plddt_bins=num_plddt_bins,
-    )
+    # out fake, pero consistente con el batch real
+    out = {
+        "R": torch.eye(3, device=device).view(1, 1, 3, 3).repeat(B, L, 1, 1),
+        "t": batch["coords_ca"].clone(),   # usar CA real como predicción fácil
+        "distogram_logits": torch.randn(B, L, L, num_dist_bins, device=device),
+        "plddt_logits": torch.randn(B, L, num_plddt_bins, device=device),
+        "torsions": batch["torsion_true"].clone(),  # predicción perfecta para torsiones
+    }
 
     loss_fn = AlphaFoldLoss(
         fape_length_scale=10.0,
@@ -159,42 +97,18 @@ def test_alphafold_loss_orchestrator_real_batch(real_batch, device):
 
     losses = loss_fn(out, batch)
 
-    # prints útiles de debugging
-    print("")
-    for k, v in losses.items():
-        if torch.is_tensor(v) and v.ndim == 0:
-            print(f"{k}: {v.item():.8f}")
-        else:
-            print(f"{k}: {v}")
+    assert "loss" in losses
+    assert torch.isfinite(losses["loss"]), "Total AlphaFold loss is not finite"
+    assert losses["loss"].ndim == 0, "Total loss should be scalar"
 
-    # keys esperadas
-    expected_keys = {"loss", "fape_loss", "dist_loss", "plddt_loss", "torsion_loss"}
-    assert expected_keys.issubset(losses.keys()), (
-        f"Missing keys in losses. Expected at least {expected_keys}, got {set(losses.keys())}"
-    )
+    for name in ["fape_loss", "dist_loss", "plddt_loss", "torsion_loss"]:
+        assert name in losses, f"Missing {name}"
+        assert torch.isfinite(losses[name]), f"{name} is not finite"
 
-    # todos escalares y finitos
-    for name in expected_keys:
-        _assert_scalar_finite(losses[name], name)
+    # como pusimos torsiones perfectas, debería ser casi cero
+    assert losses["torsion_loss"].item() < 1e-7, "torsion_loss should be ~0 for perfect torsion prediction"
 
-    # torsiones perfectas -> pérdida ~0
-    assert losses["torsion_loss"].item() < 1e-7, (
-        "torsion_loss should be ~0 for perfect torsion prediction"
-    )
-
-    # chequeo de composición ponderada
-    expected_total = (
-        loss_fn.w_fape * losses["fape_loss"]
-        + loss_fn.w_dist * losses["dist_loss"]
-        + loss_fn.w_plddt * losses["plddt_loss"]
-        + loss_fn.w_torsion * losses["torsion_loss"]
-    )
-    assert torch.allclose(losses["loss"], expected_total, atol=1e-6), (
-        "Total loss does not match weighted sum of components"
-    )
-
-    # chequeos extra de shape
-    B, L = batch["seq_tokens"].shape
+    # chequeos extra de shape para estar tranquilos
     assert out["R"].shape == (B, L, 3, 3)
     assert out["t"].shape == (B, L, 3)
     assert out["distogram_logits"].shape == (B, L, L, num_dist_bins)
@@ -202,41 +116,146 @@ def test_alphafold_loss_orchestrator_real_batch(real_batch, device):
     assert out["torsions"].shape == batch["torsion_true"].shape
     assert T == 3, f"Expected 3 torsions, got {T}"
 
+def assert_close(x, y, atol=1e-5, rtol=1e-5, msg=""):
+    if not torch.allclose(x, y, atol=atol, rtol=rtol):
+        max_err = (x - y).abs().max().item()
+        raise AssertionError(f"{msg} | max_err={max_err}")
 
-# =========================================================
-# Optional stricter test
-# =========================================================
-def test_alphafold_loss_orchestrator_real_batch_uses_backbone_coords_if_present(
-    real_batch, device
-):
-    """
-    Test opcional:
-    si tu AlphaFoldLoss usa backbone_coords cuando está presente en `out`,
-    este test verifica al menos que esa ruta corre y produce loss finita.
-    """
-    batch = real_batch
-    B, L = batch["seq_tokens"].shape
+def assert_scalar_finite(x, msg=""):
+    assert torch.is_tensor(x), f"{msg} must be a tensor"
+    assert x.ndim == 0, f"{msg} must be scalar, got shape {tuple(x.shape)}"
+    assert torch.isfinite(x), f"{msg} is not finite"
+
+def random_rotation_matrices(B, L, device="cpu", dtype=torch.float32):
+    x = torch.randn(B, L, 3, 3, device=device, dtype=dtype)
+    q, r = torch.linalg.qr(x)
+
+    d = torch.sign(torch.diagonal(r, dim1=-2, dim2=-1))
+    d = torch.where(d == 0, torch.ones_like(d), d)
+    q = q * d.unsqueeze(-2)
+
+    det = torch.det(q)
+    flip = (det < 0).to(dtype).view(B, L, 1)
+    q[..., :, 2] = q[..., :, 2] * (1.0 - 2.0 * flip)
+    return q
+
+def make_fake_alphafold_batch(B=2, L=20, T=3, device="cpu", dtype=torch.float32):
+    coords_ca = torch.randn(B, L, 3, device=device, dtype=dtype)
+
+    # construir N y C razonables alrededor de CA
+    e1 = torch.randn(B, L, 3, device=device, dtype=dtype)
+    e1 = e1 / torch.linalg.norm(e1, dim=-1, keepdim=True).clamp_min(1e-8)
+
+    e2 = torch.randn(B, L, 3, device=device, dtype=dtype)
+    e2 = e2 - (e2 * e1).sum(dim=-1, keepdim=True) * e1
+    e2 = e2 / torch.linalg.norm(e2, dim=-1, keepdim=True).clamp_min(1e-8)
+
+    coords_c = coords_ca + 1.5 * e1
+    coords_n = coords_ca + 1.3 * e2
+
+    valid_res_mask = torch.ones(B, L, device=device, dtype=dtype)
+    valid_backbone_mask = torch.ones(B, L, device=device, dtype=dtype)
+    valid_res_mask[0, -3:] = 0.0
+    valid_backbone_mask[0, -2:] = 0.0
+
+    torsion_true = torch.randn(B, L, T, 2, device=device, dtype=dtype)
+    torsion_true = torsion_true / torch.linalg.norm(
+        torsion_true, dim=-1, keepdim=True
+    ).clamp_min(1e-8)
+
+    torsion_mask = torch.ones(B, L, T, device=device, dtype=dtype)
+    torsion_mask[0, -2:, :] = 0.0
+
+    batch = {
+        "coords_n": coords_n,
+        "coords_ca": coords_ca,
+        "coords_c": coords_c,
+        "valid_res_mask": valid_res_mask,
+        "valid_backbone_mask": valid_backbone_mask,
+        "torsion_true": torsion_true,
+        "torsion_mask": torsion_mask,
+        "seq_tokens": torch.zeros(B, L, dtype=torch.long, device=device),
+    }
+    return batch
+
+def make_fake_alphafold_out(batch, num_dist_bins=64, num_plddt_bins=50, device="cpu", dtype=torch.float32):
+    B, L, _ = batch["coords_ca"].shape
+    T = batch["torsion_true"].shape[2]
 
     out = {
-        "R": torch.eye(3, device=device).view(1, 1, 3, 3).repeat(B, L, 1, 1),
+        "R": torch.eye(3, device=device, dtype=dtype).view(1, 1, 3, 3).repeat(B, L, 1, 1),
         "t": batch["coords_ca"].clone(),
-        "backbone_coords": batch["coords_backbone"].clone() if "coords_backbone" in batch else None,
-        "distogram_logits": torch.randn(B, L, L, 64, device=device),
-        "plddt_logits": torch.randn(B, L, 50, device=device),
+        "distogram_logits": torch.randn(B, L, L, num_dist_bins, device=device, dtype=dtype),
+        "plddt_logits": torch.randn(B, L, num_plddt_bins, device=device, dtype=dtype),
         "torsions": batch["torsion_true"].clone(),
     }
+    return out
 
-    if out["backbone_coords"] is None:
-        pytest.skip("Batch does not contain `coords_backbone`; skipping backbone_coords path test.")
+# ============================================================
+# build_backbone_frames tests
+# ============================================================
+def test_build_backbone_frames_validity():
+    batch = make_fake_alphafold_batch(B=2, L=12)
+    R, t = build_backbone_frames(
+        batch["coords_n"],
+        batch["coords_ca"],
+        batch["coords_c"],
+        mask=None,
+    )
+
+    assert R.shape == (2, 12, 3, 3)
+    assert t.shape == (2, 12, 3)
+    assert torch.isfinite(R).all(), "R has NaN/Inf"
+    assert torch.isfinite(t).all(), "t has NaN/Inf"
+
+    RtR = torch.matmul(R.transpose(-1, -2), R)
+    I = torch.eye(3, device=R.device, dtype=R.dtype).view(1, 1, 3, 3).expand_as(RtR)
+    det = torch.det(R)
+
+    assert_close(RtR, I, atol=1e-4, rtol=1e-4, msg="build_backbone_frames gives non-orthogonal R")
+    assert_close(det, torch.ones_like(det), atol=1e-4, rtol=1e-4, msg="det(R) != 1")
+    assert_close(t, batch["coords_ca"], atol=1e-6, rtol=1e-6, msg="t should equal coords_ca")
+
+def test_build_backbone_frames_mask_behavior():
+    batch = make_fake_alphafold_batch(B=2, L=10)
+    mask = batch["valid_backbone_mask"]
+
+    R, t = build_backbone_frames(
+        batch["coords_n"],
+        batch["coords_ca"],
+        batch["coords_c"],
+        mask=mask,
+    )
+
+    eye = torch.eye(3, device=R.device, dtype=R.dtype)   # [3,3]
+    masked = (mask == 0)
+
+    if masked.any():
+        n_masked = int(masked.sum().item())
+
+        assert_close(
+            R[masked],
+            eye.unsqueeze(0).expand(n_masked, 3, 3),
+            atol=1e-6,
+            rtol=1e-6,
+            msg="Masked backbone frames should be identity"
+        )
+        assert_close(
+            t[masked],
+            torch.zeros_like(t[masked]),
+            atol=1e-6,
+            rtol=1e-6,
+            msg="Masked backbone translations should be zero"
+        )
+
+# ============================================================
+# AlphaFoldLoss tests
+# ============================================================
+def test_alphafold_loss_weighted_sum_exact():
+    batch = make_fake_alphafold_batch(B=2, L=14)
+    out = make_fake_alphafold_out(batch)
 
     loss_fn = AlphaFoldLoss(
-        fape_length_scale=10.0,
-        fape_clamp_distance=10.0,
-        dist_num_bins=64,
-        dist_min_bin=2.0,
-        dist_max_bin=22.0,
-        plddt_num_bins=50,
-        plddt_inclusion_radius=15.0,
         w_fape=0.5,
         w_dist=0.3,
         w_plddt=0.01,
@@ -244,5 +263,110 @@ def test_alphafold_loss_orchestrator_real_batch_uses_backbone_coords_if_present(
     )
 
     losses = loss_fn(out, batch)
-    _assert_scalar_finite(losses["loss"], "loss")
-    assert losses["torsion_loss"].item() < 1e-7
+
+    manual = (
+        0.5 * losses["fape_loss"] +
+        0.3 * losses["dist_loss"] +
+        0.01 * losses["plddt_loss"] +
+        0.01 * losses["torsion_loss"]
+    )
+
+    assert_close(losses["loss"], manual, atol=1e-6, rtol=1e-6, msg="Weighted total loss mismatch")
+
+def test_alphafold_loss_without_torsion_targets():
+    batch = make_fake_alphafold_batch(B=2, L=12)
+    out = make_fake_alphafold_out(batch)
+
+    batch_no_torsion = {
+        k: v for k, v in batch.items()
+        if k not in ("torsion_true", "torsion_mask")
+    }
+
+    loss_fn = AlphaFoldLoss()
+    losses = loss_fn(out, batch_no_torsion)
+
+    assert "torsion_loss" in losses
+    assert_close(
+        losses["torsion_loss"],
+        torch.zeros_like(losses["torsion_loss"]),
+        atol=1e-8,
+        rtol=1e-8,
+        msg="torsion_loss should be zero if torsion supervision is missing"
+    )
+    assert_scalar_finite(losses["loss"], "total loss without torsion targets")
+
+def test_alphafold_loss_uses_backbone_coords_when_present():
+    batch = make_fake_alphafold_batch(B=2, L=10)
+    out = make_fake_alphafold_out(batch)
+
+    backbone_coords = torch.zeros(
+        2, 10, 3, 3,
+        dtype=batch["coords_ca"].dtype,
+        device=batch["coords_ca"].device
+    )
+
+    # Base: copiar algo razonable
+    backbone_coords[:, :, 1, :] = batch["coords_ca"].clone()
+
+    # Perturbación dependiente del residuo para cambiar distancias por pares
+    residue_offsets = torch.linspace(
+        0.0, 3.0, steps=10,
+        device=batch["coords_ca"].device,
+        dtype=batch["coords_ca"].dtype
+    ).view(1, 10, 1)
+
+    backbone_coords[:, :, 1, 0] += residue_offsets[..., 0]
+
+    out["backbone_coords"] = backbone_coords
+
+    loss_fn = AlphaFoldLoss()
+
+    losses_with_backbone = loss_fn(out, batch)
+
+    out_no_backbone = dict(out)
+    del out_no_backbone["backbone_coords"]
+    losses_without_backbone = loss_fn(out_no_backbone, batch)
+
+    diff_plddt = abs(losses_with_backbone["plddt_loss"].item() - losses_without_backbone["plddt_loss"].item())
+    diff_fape = abs(losses_with_backbone["fape_loss"].item() - losses_without_backbone["fape_loss"].item())
+
+    assert diff_plddt > 1e-8 or diff_fape > 1e-8, (
+        "backbone_coords path seems unused; neither pLDDT nor FAPE changed"
+    )
+
+def test_alphafold_loss_gradients_finite():
+    batch = make_fake_alphafold_batch(B=2, L=10)
+    out = make_fake_alphafold_out(batch)
+
+    out["t"] = out["t"].clone().detach().requires_grad_(True)
+    out["distogram_logits"] = out["distogram_logits"].clone().detach().requires_grad_(True)
+    out["plddt_logits"] = out["plddt_logits"].clone().detach().requires_grad_(True)
+    out["torsions"] = out["torsions"].clone().detach().requires_grad_(True)
+
+    loss_fn = AlphaFoldLoss()
+    losses = loss_fn(out, batch)
+    loss = losses["loss"]
+
+    assert_scalar_finite(loss, "AlphaFoldLoss total loss")
+    loss.backward()
+
+    assert out["t"].grad is not None, "No grad for predicted t"
+    assert out["distogram_logits"].grad is not None, "No grad for distogram logits"
+    assert out["plddt_logits"].grad is not None, "No grad for pLDDT logits"
+    assert out["torsions"].grad is not None, "No grad for torsions"
+
+    assert torch.isfinite(out["t"].grad).all(), "t grad has NaN/Inf"
+    assert torch.isfinite(out["distogram_logits"].grad).all(), "distogram grad has NaN/Inf"
+    assert torch.isfinite(out["plddt_logits"].grad).all(), "pLDDT grad has NaN/Inf"
+    assert torch.isfinite(out["torsions"].grad).all(), "torsion grad has NaN/Inf"
+
+def run_alphafold_orchestrator_tests():
+
+    test_build_backbone_frames_validity()
+    test_build_backbone_frames_mask_behavior()
+
+    test_alphafold_loss_weighted_sum_exact()
+    test_alphafold_loss_without_torsion_targets()
+    test_alphafold_loss_uses_backbone_coords_when_present()
+    test_alphafold_loss_gradients_finite()
+

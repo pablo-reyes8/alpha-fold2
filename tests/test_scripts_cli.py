@@ -1,3 +1,5 @@
+"""Exercise the lightweight repository CLIs and config plumbing exposed under scripts/."""
+
 from __future__ import annotations
 
 from copy import deepcopy

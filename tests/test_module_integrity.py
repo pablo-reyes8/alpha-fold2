@@ -1,3 +1,5 @@
+"""Verify that key project modules import cleanly and expose nontrivial module docstrings."""
+
 from __future__ import annotations
 
 import ast

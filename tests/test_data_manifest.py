@@ -1,3 +1,5 @@
+"""Exercise manifest-building utilities that index downloaded protein records."""
+
 from __future__ import annotations
 
 import json

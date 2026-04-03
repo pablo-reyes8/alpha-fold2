@@ -1,3 +1,5 @@
+"""Validate the warmup-plus-cosine learning-rate scheduler against expected step behavior."""
+
 from __future__ import annotations
 
 import torch

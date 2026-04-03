@@ -1,3 +1,5 @@
+"""Test training-loop utilities, AMP helpers, EMA handling, and recycle flag propagation."""
+
 from __future__ import annotations
 
 import pytest

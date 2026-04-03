@@ -1,3 +1,5 @@
+"""Validate training-time structure metrics on small synthetic coordinate examples."""
+
 from __future__ import annotations
 
 import torch

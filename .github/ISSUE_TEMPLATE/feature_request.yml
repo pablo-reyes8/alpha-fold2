@@ -1,0 +1,80 @@
+name: Feature request
+description: Propose an improvement to the data pipeline, architecture, training stack, or developer workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+  - triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement.
+
+        The most useful requests clearly explain the current limitation, the proposed change, and how it fits the repository's goals: modularity, reproducibility, and architectural transparency.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the project would this improve?
+      options:
+        - Data pipeline
+        - Data inspection or visualization
+        - Model architecture
+        - Geometry or structure module
+        - Losses
+        - Training loop
+        - Distributed or parallel training
+        - CLI workflows
+        - Testing
+        - Documentation or notebooks
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What limitation, pain point, or missing capability are you trying to address?
+      placeholder: Describe the current problem or workflow gap.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or design you would like to see.
+      placeholder: Explain the proposed behavior, API, CLI, or architectural change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What alternatives have you considered, including doing nothing?
+    validations:
+      required: false
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Expected validation
+      description: How should this be tested or validated if implemented?
+      placeholder: Targeted tests, smoke commands, notebook path, or benchmark expectations.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and discussions before opening this request.
+          required: true
+        - label: This request is specific to this repository rather than a generic AlphaFold question.
+          required: true
+        - label: I understand that research-oriented changes may be accepted incrementally rather than all at once.
+          required: true

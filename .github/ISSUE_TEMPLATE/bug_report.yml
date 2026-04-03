@@ -1,0 +1,106 @@
+name: Bug report
+description: Report a reproducible problem in the data pipeline, architecture, losses, training, or tooling.
+title: "[Bug]: "
+labels:
+  - bug
+  - triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+
+        Please make the report specific enough to reproduce. For security-sensitive findings, do not use this form; follow the instructions in `SECURITY.md`.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the repository is affected?
+      options:
+        - Data download or manifest pipeline
+        - Dataloader or collation
+        - Model architecture
+        - Geometry or structure module
+        - Losses
+        - Training loop
+        - Distributed or parallel training
+        - CLI scripts
+        - Notebook or documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Bug summary
+      description: What happened, and what did you expect to happen instead?
+      placeholder: Describe the observed behavior and the expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest sequence of steps or commands that reproduces the issue.
+      render: bash
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit, branch, or notebook context
+      description: If known, tell us the branch, commit SHA, or notebook you used.
+      placeholder: main @ abc1234
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Share the relevant runtime details.
+      placeholder: |
+        OS:
+        Python:
+        PyTorch:
+        CUDA:
+        GPU(s):
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or traceback
+      description: Paste the most relevant logs, stack trace, or assertion output.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add screenshots, tensor shapes, dataset notes, or anything else that helps.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues before opening this bug report.
+          required: true
+        - label: I can reproduce the problem with the current repository state or a specific commit.
+          required: true
+        - label: I am not using this form for a security vulnerability.
+          required: true

@@ -224,7 +224,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # You need to download first the data
 dataset = FoldbenchProteinDataset(
     manifest_csv="data/showcase_manifest.csv",
-    max_msa_seqs=128,)
+    max_msa_seqs=128, crop_size=64, random_crop=True,)
 
 loader = DataLoader(dataset, batch_size=1, shuffle=True, collate_fn=collate_proteins)
 

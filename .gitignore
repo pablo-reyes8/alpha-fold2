@@ -7,3 +7,8 @@ data/af_subset/
 checkpoints*/
 .venv_tmp_data
 .venv_tmp_crop
+.agents
+.skills-lock
+
+
+

@@ -5,7 +5,16 @@ on:
     branches:
       - main
       - master
+    paths:
+      - 'model/**'
+      - 'data/**'
+      - 'training/**'
+
   pull_request:
+    paths:
+      - 'model/**'
+      - 'data/**'
+      - 'training/**'
 
 jobs:
   test:

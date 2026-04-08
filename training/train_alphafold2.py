@@ -19,7 +19,7 @@ from training.checkpoints import (
 )
 from training.colab_utils import fmt_hms, rule
 from training.eval_one_epoch import eval_one_epoch
-from training.train_one_epoch import train_one_epoch
+from training.train_one_epoch import model_tm_head_enabled, train_one_epoch
 from training.train_parallel.data_parallel import maybe_barrier, sync_epoch_stats
 
 
@@ -30,6 +30,7 @@ BASE_MONITOR_NAMES = {
     "msa_loss",
     "plddt_loss",
     "torsion_loss",
+    "ptm_logged",
     "rmsd_logged",
     "tm_score_logged",
     "gdt_ts_logged",
@@ -162,6 +163,7 @@ def train_alphafold2(
 
     if is_main_process:
         lr_now = optimizer.param_groups[0]["lr"]
+        log_ptm = model_tm_head_enabled(model)
         print(rule())
         print(f"AlphaFold2-like run: {run_name}")
         print(
@@ -174,10 +176,16 @@ def train_alphafold2(
         if eval_loader is not None:
             print(f"Eval loader: enabled | eval_every: {max(1, int(eval_every))}")
         print(rule())
-        print(
-            f"{'ep':>3} | {'step':>8} | {'loss':>10} | {'fape':>10} | {'dist':>10} | {'msa':>10} | "
-            f"{'plddt':>10} | {'tors':>10} | {'rmsd':>8} | {'tm':>8} | {'gdt':>8} | {'lr':>9} | {'time':>8}"
-        )
+        if log_ptm:
+            print(
+                f"{'ep':>3} | {'step':>8} | {'loss':>10} | {'fape':>10} | {'dist':>10} | {'msa':>10} | "
+                f"{'plddt':>10} | {'tors':>10} | {'ptm':>8} | {'rmsd':>8} | {'tm':>8} | {'gdt':>8} | {'lr':>9} | {'time':>8}"
+            )
+        else:
+            print(
+                f"{'ep':>3} | {'step':>8} | {'loss':>10} | {'fape':>10} | {'dist':>10} | {'msa':>10} | "
+                f"{'plddt':>10} | {'tors':>10} | {'rmsd':>8} | {'tm':>8} | {'gdt':>8} | {'lr':>9} | {'time':>8}"
+            )
         print(rule())
 
     total_time = 0.0
@@ -251,21 +259,39 @@ def train_alphafold2(
         combined_metrics.update(eval_stats if eval_stats is not None else train_stats)
 
         if is_main_process:
-            print(
-                f"{epoch:3d} | {global_step:8d} | "
-                f"{train_stats['loss']:10.5f} | {train_stats['fape_loss']:10.5f} | {train_stats['dist_loss']:10.5f} | {train_stats['msa_loss']:10.5f} | "
-                f"{train_stats['plddt_loss']:10.5f} | {train_stats['torsion_loss']:10.5f} | "
-                f"{train_stats['rmsd_logged']:8.3f} | {train_stats['tm_score_logged']:8.3f} | {train_stats['gdt_ts_logged']:8.3f} | "
-                f"{lr_now:9.2e} | {fmt_hms(sec):>8}"
-            )
-            if eval_stats is not None:
+            if model_tm_head_enabled(model):
                 print(
-                    "    eval -> "
-                    f"loss: {eval_stats['loss']:.5f} | fape: {eval_stats['fape_loss']:.5f} | "
-                    f"dist: {eval_stats['dist_loss']:.5f} | msa: {eval_stats['msa_loss']:.5f} | plddt: {eval_stats['plddt_loss']:.5f} | "
-                    f"tors: {eval_stats['torsion_loss']:.5f} | rmsd: {eval_stats['rmsd_logged']:.3f} | "
-                    f"tm: {eval_stats['tm_score_logged']:.3f} | gdt: {eval_stats['gdt_ts_logged']:.3f}"
+                    f"{epoch:3d} | {global_step:8d} | "
+                    f"{train_stats['loss']:10.5f} | {train_stats['fape_loss']:10.5f} | {train_stats['dist_loss']:10.5f} | {train_stats['msa_loss']:10.5f} | "
+                    f"{train_stats['plddt_loss']:10.5f} | {train_stats['torsion_loss']:10.5f} | {train_stats['ptm_logged']:8.3f} | "
+                    f"{train_stats['rmsd_logged']:8.3f} | {train_stats['tm_score_logged']:8.3f} | {train_stats['gdt_ts_logged']:8.3f} | "
+                    f"{lr_now:9.2e} | {fmt_hms(sec):>8}"
                 )
+            else:
+                print(
+                    f"{epoch:3d} | {global_step:8d} | "
+                    f"{train_stats['loss']:10.5f} | {train_stats['fape_loss']:10.5f} | {train_stats['dist_loss']:10.5f} | {train_stats['msa_loss']:10.5f} | "
+                    f"{train_stats['plddt_loss']:10.5f} | {train_stats['torsion_loss']:10.5f} | "
+                    f"{train_stats['rmsd_logged']:8.3f} | {train_stats['tm_score_logged']:8.3f} | {train_stats['gdt_ts_logged']:8.3f} | "
+                    f"{lr_now:9.2e} | {fmt_hms(sec):>8}"
+                )
+            if eval_stats is not None:
+                if model_tm_head_enabled(model):
+                    print(
+                        "    eval -> "
+                        f"loss: {eval_stats['loss']:.5f} | fape: {eval_stats['fape_loss']:.5f} | "
+                        f"dist: {eval_stats['dist_loss']:.5f} | msa: {eval_stats['msa_loss']:.5f} | plddt: {eval_stats['plddt_loss']:.5f} | "
+                        f"tors: {eval_stats['torsion_loss']:.5f} | ptm: {eval_stats['ptm_logged']:.3f} | rmsd: {eval_stats['rmsd_logged']:.3f} | "
+                        f"tm: {eval_stats['tm_score_logged']:.3f} | gdt: {eval_stats['gdt_ts_logged']:.3f}"
+                    )
+                else:
+                    print(
+                        "    eval -> "
+                        f"loss: {eval_stats['loss']:.5f} | fape: {eval_stats['fape_loss']:.5f} | "
+                        f"dist: {eval_stats['dist_loss']:.5f} | msa: {eval_stats['msa_loss']:.5f} | plddt: {eval_stats['plddt_loss']:.5f} | "
+                        f"tors: {eval_stats['torsion_loss']:.5f} | rmsd: {eval_stats['rmsd_logged']:.3f} | "
+                        f"tm: {eval_stats['tm_score_logged']:.3f} | gdt: {eval_stats['gdt_ts_logged']:.3f}"
+                    )
 
         monitor_stats, monitor_key = _resolve_monitor_stats(
             monitor_name,

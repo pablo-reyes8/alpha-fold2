@@ -70,6 +70,9 @@ model:
   masked_msa_num_classes: 23
   masked_msa_head_enabled: true
   plddt_head_enabled: true
+  tm_num_bins: 64
+  tm_max_error: 31.5
+  tm_head_enabled: false
   torsion_head_enabled: true
 
 loss:

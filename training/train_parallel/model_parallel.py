@@ -42,6 +42,7 @@ class AlphaFold2ModelParallel(nn.Module):
         self.distogram_head_enabled = bool(getattr(model, "distogram_head_enabled", True))
         self.masked_msa_head_enabled = bool(getattr(model, "masked_msa_head_enabled", True))
         self.plddt_head_enabled = bool(getattr(model, "plddt_head_enabled", True))
+        self.tm_head_enabled = bool(getattr(model, "tm_head_enabled", False))
         self.torsion_head_enabled = bool(getattr(model, "torsion_head_enabled", True))
 
         self.input_embedder = model.input_embedder.to(self.input_device)
@@ -55,6 +56,7 @@ class AlphaFold2ModelParallel(nn.Module):
         self.plddt_head = model.plddt_head.to(self.output_device)
         self.distogram_head = model.distogram_head.to(self.output_device)
         self.masked_msa_head = model.masked_msa_head.to(self.output_device)
+        self.tm_head = model.tm_head.to(self.output_device)
         self.torsion_head = model.torsion_head.to(self.output_device)
 
     def _to_input_device(self, tensor):
@@ -220,6 +222,10 @@ class AlphaFold2ModelParallel(nn.Module):
             masked_msa_logits = None
             if self.masked_msa_head_enabled:
                 masked_msa_logits = self.masked_msa_head(m_output[:, :original_msa_depth])
+            if self.tm_head_enabled:
+                tm_logits, ptm = self.tm_head(z_output, residue_mask=seq_mask_output)
+            else:
+                tm_logits, ptm = None, None
             s0 = self.single_proj(m_output)
             structure_pair = self._build_structure_pair_input(z_output)
             s, R, t, structure_intermediates = self.structure_module(
@@ -277,6 +283,8 @@ class AlphaFold2ModelParallel(nn.Module):
                 "plddt": plddt,
                 "distogram_logits": distogram_logits,
                 "masked_msa_logits": masked_msa_logits,
+                "tm_logits": tm_logits,
+                "ptm": ptm,
             }
 
             if recycle_idx < num_recycles:

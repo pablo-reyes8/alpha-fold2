@@ -31,6 +31,7 @@ LOSS_AVERAGE_KEYS = (
     "num_recycles",
 )
 METRIC_AVERAGE_KEYS = (
+    "ptm_logged",
     "rmsd_logged",
     "tm_score_logged",
     "gdt_ts_logged",

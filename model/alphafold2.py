@@ -35,6 +35,7 @@ class AlphaFold2(nn.Module):
       - torsion angles
       - pLDDT
       - distogram logits
+      - optional TM logits and pTM
     """
     @staticmethod
     def _normalize_ablation_id(ablation):
@@ -72,6 +73,7 @@ class AlphaFold2(nn.Module):
                 "distogram_head_enabled": False,
                 "masked_msa_head_enabled": False,
                 "plddt_head_enabled": False,
+                "tm_head_enabled": False,
                 "torsion_head_enabled": False,
             },
             4: {
@@ -105,6 +107,8 @@ class AlphaFold2(nn.Module):
         dist_bins=64,
         masked_msa_num_classes=23,
         plddt_bins=50,
+        tm_num_bins=64,
+        tm_max_error=31.5,
         n_torsions=7,
         num_res_blocks_torsion=2,
         recycle_min_bin=3.25,
@@ -132,6 +136,7 @@ class AlphaFold2(nn.Module):
         distogram_head_enabled=True,
         masked_msa_head_enabled=True,
         plddt_head_enabled=True,
+        tm_head_enabled=False,
         torsion_head_enabled=True):
 
         super().__init__()
@@ -164,6 +169,7 @@ class AlphaFold2(nn.Module):
         distogram_head_enabled = ablation_defaults.get("distogram_head_enabled", distogram_head_enabled)
         masked_msa_head_enabled = ablation_defaults.get("masked_msa_head_enabled", masked_msa_head_enabled)
         plddt_head_enabled = ablation_defaults.get("plddt_head_enabled", plddt_head_enabled)
+        tm_head_enabled = ablation_defaults.get("tm_head_enabled", tm_head_enabled)
         torsion_head_enabled = ablation_defaults.get("torsion_head_enabled", torsion_head_enabled)
 
         self.ablation = self._normalize_ablation_id(ablation)
@@ -185,6 +191,7 @@ class AlphaFold2(nn.Module):
         self.distogram_head_enabled = bool(distogram_head_enabled)
         self.masked_msa_head_enabled = bool(masked_msa_head_enabled)
         self.plddt_head_enabled = bool(plddt_head_enabled)
+        self.tm_head_enabled = bool(tm_head_enabled)
         self.torsion_head_enabled = bool(torsion_head_enabled)
 
 
@@ -222,6 +229,7 @@ class AlphaFold2(nn.Module):
         self.plddt_head = PlddtHead(c_s=c_s, num_bins=plddt_bins)
         self.distogram_head = DistogramHead(c_z=c_z, num_bins=dist_bins)
         self.masked_msa_head = MaskedMsaHead(c_m=c_m, num_classes=masked_msa_num_classes)
+        self.tm_head = TMHead(c_z=c_z, num_bins=tm_num_bins, max_error=tm_max_error)
         self.torsion_head = TorsionHead(c_s=c_s, n_torsions=n_torsions , num_res_blocks = num_res_blocks_torsion)
         self.recycling_embedder = RecyclingEmbedder(
             c_m=c_m,
@@ -251,6 +259,7 @@ class AlphaFold2(nn.Module):
         zero_init_linear(self.plddt_head.mlp[-1])
         zero_init_linear(self.distogram_head.linear)
         zero_init_linear(self.masked_msa_head.linear)
+        zero_init_linear(self.tm_head.linear)
 
         self._freeze_module(self.evoformer, enabled=self.evoformer_enabled)
         self._freeze_module(self.extra_msa_stack, enabled=self.extra_msa_stack_enabled)
@@ -261,6 +270,7 @@ class AlphaFold2(nn.Module):
         self._freeze_module(self.distogram_head, enabled=self.distogram_head_enabled)
         self._freeze_module(self.masked_msa_head, enabled=self.masked_msa_head_enabled)
         self._freeze_module(self.plddt_head, enabled=self.plddt_head_enabled)
+        self._freeze_module(self.tm_head, enabled=self.tm_head_enabled)
         self._freeze_module(self.torsion_head, enabled=self.torsion_head_enabled)
 
     @staticmethod
@@ -420,6 +430,10 @@ class AlphaFold2(nn.Module):
             masked_msa_logits = None
             if self.masked_msa_head_enabled:
                 masked_msa_logits = self.masked_msa_head(m[:, :original_msa_depth])
+            if self.tm_head_enabled:
+                tm_logits, ptm = self.tm_head(z, residue_mask=seq_mask)
+            else:
+                tm_logits, ptm = None, None
 
             # single repr + structure
             s0 = self.single_proj(m)
@@ -484,6 +498,8 @@ class AlphaFold2(nn.Module):
                 "plddt": plddt,
                 "distogram_logits": distogram_logits,
                 "masked_msa_logits": masked_msa_logits,
+                "tm_logits": tm_logits,
+                "ptm": ptm,
             }
 
             if recycle_idx < num_recycles:

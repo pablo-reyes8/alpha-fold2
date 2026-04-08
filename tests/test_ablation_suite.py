@@ -187,6 +187,7 @@ def test_alphafold2_ablation_defaults_are_explicit_and_baseline_safe():
     assert AlphaFold2.resolve_ablation_defaults(2)["recycle_single_enabled"] is False
     assert AlphaFold2.resolve_ablation_defaults(3)["masked_msa_head_enabled"] is False
     assert AlphaFold2.resolve_ablation_defaults(3)["plddt_head_enabled"] is False
+    assert AlphaFold2.resolve_ablation_defaults(3)["tm_head_enabled"] is False
     assert AlphaFold2.resolve_ablation_defaults(4)["use_block_specific_params"] is True
     assert AlphaFold2.resolve_ablation_defaults(5)["recycle_single_enabled"] is False
     assert AlphaFold2.resolve_ablation_defaults(5)["evoformer_enabled"] is False

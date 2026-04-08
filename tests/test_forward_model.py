@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import torch
 
+from model.alphafold2 import AlphaFold2
+
 
 def test_alphafold2_forward_smoke(toy_model, toy_batch):
     with torch.no_grad():
@@ -28,6 +30,8 @@ def test_alphafold2_forward_smoke(toy_model, toy_batch):
     assert outputs["plddt"].shape == (batch_size, length)
     assert outputs["distogram_logits"].shape == (batch_size, length, length, 64)
     assert outputs["masked_msa_logits"].shape == (batch_size, toy_batch["msa_tokens"].shape[1], length, 23)
+    assert outputs["tm_logits"] is None
+    assert outputs["ptm"] is None
 
     for value in outputs.values():
         if torch.is_tensor(value):
@@ -39,6 +43,45 @@ def test_alphafold2_forward_smoke(toy_model, toy_batch):
         atol=1e-5,
     )
     assert torch.all((outputs["plddt"] >= 0.0) & (outputs["plddt"] <= 100.0))
+
+
+def test_alphafold2_tm_head_can_be_enabled(toy_batch):
+    torch.manual_seed(11)
+    model = AlphaFold2(
+        n_tokens=27,
+        c_m=256,
+        c_z=128,
+        c_s=256,
+        max_relpos=32,
+        pad_idx=0,
+        num_evoformer_blocks=1,
+        num_structure_blocks=1,
+        transition_expansion_evoformer=2,
+        transition_expansion_structure=2,
+        use_block_specific_params=False,
+        dist_bins=64,
+        plddt_bins=50,
+        tm_num_bins=64,
+        tm_head_enabled=True,
+        n_torsions=3,
+        num_res_blocks_torsion=1,
+    ).eval()
+
+    with torch.no_grad():
+        outputs = model(
+            seq_tokens=toy_batch["seq_tokens"],
+            msa_tokens=toy_batch["msa_tokens"],
+            seq_mask=toy_batch["seq_mask"],
+            msa_mask=toy_batch["msa_mask"],
+            ideal_backbone_local=toy_batch["ideal_backbone_local"],
+        )
+
+    batch_size, length = toy_batch["seq_tokens"].shape
+    assert outputs["tm_logits"].shape == (batch_size, length, length, 64)
+    assert outputs["ptm"].shape == (batch_size,)
+    assert torch.isfinite(outputs["tm_logits"]).all()
+    assert torch.isfinite(outputs["ptm"]).all()
+    assert torch.all((outputs["ptm"] >= 0.0) & (outputs["ptm"] <= 1.0))
 
 
 def test_alphafold_loss_orchestrator_returns_finite_components(toy_model, toy_batch, toy_criterion):

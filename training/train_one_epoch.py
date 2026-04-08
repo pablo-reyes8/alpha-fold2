@@ -39,6 +39,15 @@ def gpu_mem_mb(device="cuda"):
     return 0.0, 0.0
 
 
+def model_tm_head_enabled(model) -> bool:
+    if hasattr(model, "tm_head_enabled"):
+        return bool(getattr(model, "tm_head_enabled"))
+    wrapped = getattr(model, "module", None)
+    if wrapped is not None and hasattr(wrapped, "tm_head_enabled"):
+        return bool(getattr(wrapped, "tm_head_enabled"))
+    return False
+
+
 def resolve_batch_num_recycles(
     *,
     num_recycles: int = 0,
@@ -123,6 +132,7 @@ def train_one_epoch(
         "plddt_loss": 0.0,
         "torsion_loss": 0.0,
         "num_recycles": 0.0,
+        "ptm_logged": 0.0,
         "rmsd_logged": 0.0,
         "tm_score_logged": 0.0,
         "gdt_ts_logged": 0.0,}
@@ -131,16 +141,26 @@ def train_one_epoch(
     n_optimizer_steps = 0
     n_seen_samples = 0
     n_metric_logs = 0
+    log_ptm = model_tm_head_enabled(model)
 
     if log_every and is_main_process:
         print("┆ In-epoch statistics (AlphaFold2-like)")
-        print(
-            "┆   {:>8} | {:>8} | {:>9} | {:>9} | {:>9} | {:>9} | {:>8} | {:>8} | {:>8}{}".format(
-                "step", "batch", "loss", "fape", "dist", "msa", "rmsd", "tm", "gdt",
-                (" | grad_norm | mem(MB)" if (log_grad_norm or log_mem) else "")
+        if log_ptm:
+            print(
+                "┆   {:>8} | {:>8} | {:>9} | {:>9} | {:>9} | {:>9} | {:>8} | {:>8} | {:>8} | {:>8}{}".format(
+                    "step", "batch", "loss", "fape", "dist", "msa", "ptm", "rmsd", "tm", "gdt",
+                    (" | grad_norm | mem(MB)" if (log_grad_norm or log_mem) else "")
+                )
             )
-        )
-        print("┆   " + "─" * 118)
+            print("┆   " + "─" * 129)
+        else:
+            print(
+                "┆   {:>8} | {:>8} | {:>9} | {:>9} | {:>9} | {:>9} | {:>8} | {:>8} | {:>8}{}".format(
+                    "step", "batch", "loss", "fape", "dist", "msa", "rmsd", "tm", "gdt",
+                    (" | grad_norm | mem(MB)" if (log_grad_norm or log_mem) else "")
+                )
+            )
+            print("┆   " + "─" * 118)
 
     for i, batch in enumerate(dataloader):
 
@@ -274,6 +294,12 @@ def train_one_epoch(
                         mask=mask,
                         align=True)
 
+                ptm_logged = None
+                if out.get("ptm") is not None:
+                    ptm_logged = float(out["ptm"].detach().mean().item())
+
+                if ptm_logged is not None:
+                    running["ptm_logged"] += ptm_logged
                 running["rmsd_logged"] += float(metrics["rmsd"].item())
                 running["tm_score_logged"] += float(metrics["tm_score"].item())
                 running["gdt_ts_logged"] += float(metrics["gdt_ts"].item())
@@ -290,20 +316,37 @@ def train_one_epoch(
                 gn_str = f"{grad_norm:.2e}" if grad_norm is not None else "—"
 
                 if is_main_process:
-                    print(
-                        "┆   {:8d} | {:8d} | {:9.4f} | {:9.4f} | {:9.4f} | {:9.4f} | {:8.3f} | {:8.3f} | {:8.3f} | {:>9} | {:>9} | {:7.1f}ms".format(
-                            global_step,
-                            i + 1,
-                            loss_val,
-                            float(loss_dict["fape_loss"].detach().item()),
-                            float(loss_dict["dist_loss"].detach().item()),
-                            float(loss_dict["msa_loss"].detach().item()),
-                            float(metrics["rmsd"].item()),
-                            float(metrics["tm_score"].item()),
-                            float(metrics["gdt_ts"].item()),
-                            gn_str,
-                            mem_msg,
-                            dt_ms))
+                    if log_ptm:
+                        print(
+                            "┆   {:8d} | {:8d} | {:9.4f} | {:9.4f} | {:9.4f} | {:9.4f} | {:8.3f} | {:8.3f} | {:8.3f} | {:8.3f} | {:>9} | {:>9} | {:7.1f}ms".format(
+                                global_step,
+                                i + 1,
+                                loss_val,
+                                float(loss_dict["fape_loss"].detach().item()),
+                                float(loss_dict["dist_loss"].detach().item()),
+                                float(loss_dict["msa_loss"].detach().item()),
+                                float(ptm_logged if ptm_logged is not None else float("nan")),
+                                float(metrics["rmsd"].item()),
+                                float(metrics["tm_score"].item()),
+                                float(metrics["gdt_ts"].item()),
+                                gn_str,
+                                mem_msg,
+                                dt_ms))
+                    else:
+                        print(
+                            "┆   {:8d} | {:8d} | {:9.4f} | {:9.4f} | {:9.4f} | {:9.4f} | {:8.3f} | {:8.3f} | {:8.3f} | {:>9} | {:>9} | {:7.1f}ms".format(
+                                global_step,
+                                i + 1,
+                                loss_val,
+                                float(loss_dict["fape_loss"].detach().item()),
+                                float(loss_dict["dist_loss"].detach().item()),
+                                float(loss_dict["msa_loss"].detach().item()),
+                                float(metrics["rmsd"].item()),
+                                float(metrics["tm_score"].item()),
+                                float(metrics["gdt_ts"].item()),
+                                gn_str,
+                                mem_msg,
+                                dt_ms))
 
         except RuntimeError as e:
             if ("CUDA out of memory" in str(e)) and (on_oom == "skip"):
@@ -332,6 +375,7 @@ def train_one_epoch(
         "plddt_loss": running["plddt_loss"] / denom_loss,
         "torsion_loss": running["torsion_loss"] / denom_loss,
         "num_recycles": running["num_recycles"] / denom_loss,
+        "ptm_logged": running["ptm_logged"] / denom_metrics if log_ptm and n_metric_logs > 0 else float("nan"),
         # promedios solo sobre los puntos donde sí se loguearon métricas
         "rmsd_logged": running["rmsd_logged"] / denom_metrics if n_metric_logs > 0 else float("nan"),
         "tm_score_logged": running["tm_score_logged"] / denom_metrics if n_metric_logs > 0 else float("nan"),

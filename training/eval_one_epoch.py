@@ -13,7 +13,7 @@ import torch
 
 from training.autocast import autocast_ctx
 from training.efficient_metrics import compute_structure_metrics
-from training.train_one_epoch import gpu_mem_mb, move_batch_to_device, resolve_batch_num_recycles
+from training.train_one_epoch import gpu_mem_mb, model_tm_head_enabled, move_batch_to_device, resolve_batch_num_recycles
 
 
 def _extract_metric_coords(outputs: dict, batch: dict) -> tuple[torch.Tensor, torch.Tensor]:
@@ -54,6 +54,7 @@ def eval_one_epoch(
         "plddt_loss": 0.0,
         "torsion_loss": 0.0,
         "num_recycles": 0.0,
+        "ptm_logged": 0.0,
         "rmsd_logged": 0.0,
         "tm_score_logged": 0.0,
         "gdt_ts_logged": 0.0,
@@ -62,24 +63,43 @@ def eval_one_epoch(
     n_seen_batches = 0
     n_seen_samples = 0
     n_metric_logs = 0
+    log_ptm = model_tm_head_enabled(model)
 
     if log_every and is_main_process:
         print("┆ Eval statistics (AlphaFold2-like)")
-        print(
-            "┆   {:>8} | {:>8} | {:>9} | {:>9} | {:>9} | {:>9} | {:>8} | {:>8} | {:>8}{}".format(
-                "batch",
-                "recycles",
-                "loss",
-                "fape",
-                "dist",
-                "msa",
-                "rmsd",
-                "tm",
-                "gdt",
-                (" | mem(MB)" if log_mem else ""),
+        if log_ptm:
+            print(
+                "┆   {:>8} | {:>8} | {:>9} | {:>9} | {:>9} | {:>9} | {:>8} | {:>8} | {:>8} | {:>8}{}".format(
+                    "batch",
+                    "recycles",
+                    "loss",
+                    "fape",
+                    "dist",
+                    "msa",
+                    "ptm",
+                    "rmsd",
+                    "tm",
+                    "gdt",
+                    (" | mem(MB)" if log_mem else ""),
+                )
             )
-        )
-        print("┆   " + "─" * 108)
+            print("┆   " + "─" * 119)
+        else:
+            print(
+                "┆   {:>8} | {:>8} | {:>9} | {:>9} | {:>9} | {:>9} | {:>8} | {:>8} | {:>8}{}".format(
+                    "batch",
+                    "recycles",
+                    "loss",
+                    "fape",
+                    "dist",
+                    "msa",
+                    "rmsd",
+                    "tm",
+                    "gdt",
+                    (" | mem(MB)" if log_mem else ""),
+                )
+            )
+            print("┆   " + "─" * 108)
 
     for index, batch in enumerate(dataloader):
         if max_batches is not None and index >= max_batches:
@@ -120,6 +140,9 @@ def eval_one_epoch(
                     mask=batch["valid_res_mask"].detach(),
                     align=True,
                 )
+                ptm_logged = None
+                if outputs.get("ptm") is not None:
+                    ptm_logged = float(outputs["ptm"].detach().mean().item())
 
             running["loss"] += float(loss_dict["loss"].detach().item())
             running["fape_loss"] += float(loss_dict["fape_loss"].detach().item())
@@ -128,6 +151,8 @@ def eval_one_epoch(
             running["plddt_loss"] += float(loss_dict["plddt_loss"].detach().item())
             running["torsion_loss"] += float(loss_dict["torsion_loss"].detach().item())
             running["num_recycles"] += float(batch_num_recycles)
+            if ptm_logged is not None:
+                running["ptm_logged"] += ptm_logged
             running["rmsd_logged"] += float(metrics["rmsd"].item())
             running["tm_score_logged"] += float(metrics["tm_score"].item())
             running["gdt_ts_logged"] += float(metrics["gdt_ts"].item())
@@ -142,21 +167,39 @@ def eval_one_epoch(
                 else:
                     mem_msg = ""
 
-                print(
-                    "┆   {:8d} | {:8d} | {:9.4f} | {:9.4f} | {:9.4f} | {:9.4f} | {:8.3f} | {:8.3f} | {:8.3f}{} | {:7.1f}ms".format(
-                        index + 1,
-                        batch_num_recycles,
-                        float(loss_dict["loss"].detach().item()),
-                        float(loss_dict["fape_loss"].detach().item()),
-                        float(loss_dict["dist_loss"].detach().item()),
-                        float(loss_dict["msa_loss"].detach().item()),
-                        float(metrics["rmsd"].item()),
-                        float(metrics["tm_score"].item()),
-                        float(metrics["gdt_ts"].item()),
-                        mem_msg,
-                        (time.perf_counter() - t0) * 1000.0,
+                if log_ptm:
+                    print(
+                        "┆   {:8d} | {:8d} | {:9.4f} | {:9.4f} | {:9.4f} | {:9.4f} | {:8.3f} | {:8.3f} | {:8.3f} | {:8.3f}{} | {:7.1f}ms".format(
+                            index + 1,
+                            batch_num_recycles,
+                            float(loss_dict["loss"].detach().item()),
+                            float(loss_dict["fape_loss"].detach().item()),
+                            float(loss_dict["dist_loss"].detach().item()),
+                            float(loss_dict["msa_loss"].detach().item()),
+                            float(ptm_logged if ptm_logged is not None else float("nan")),
+                            float(metrics["rmsd"].item()),
+                            float(metrics["tm_score"].item()),
+                            float(metrics["gdt_ts"].item()),
+                            mem_msg,
+                            (time.perf_counter() - t0) * 1000.0,
+                        )
                     )
-                )
+                else:
+                    print(
+                        "┆   {:8d} | {:8d} | {:9.4f} | {:9.4f} | {:9.4f} | {:9.4f} | {:8.3f} | {:8.3f} | {:8.3f}{} | {:7.1f}ms".format(
+                            index + 1,
+                            batch_num_recycles,
+                            float(loss_dict["loss"].detach().item()),
+                            float(loss_dict["fape_loss"].detach().item()),
+                            float(loss_dict["dist_loss"].detach().item()),
+                            float(loss_dict["msa_loss"].detach().item()),
+                            float(metrics["rmsd"].item()),
+                            float(metrics["tm_score"].item()),
+                            float(metrics["gdt_ts"].item()),
+                            mem_msg,
+                            (time.perf_counter() - t0) * 1000.0,
+                        )
+                    )
         except RuntimeError as error:
             if ("CUDA out of memory" in str(error)) and (on_oom == "skip"):
                 gc.collect()
@@ -177,6 +220,7 @@ def eval_one_epoch(
         "plddt_loss": running["plddt_loss"] / denom_loss,
         "torsion_loss": running["torsion_loss"] / denom_loss,
         "num_recycles": running["num_recycles"] / denom_loss,
+        "ptm_logged": running["ptm_logged"] / denom_metrics if log_ptm and n_metric_logs > 0 else float("nan"),
         "rmsd_logged": running["rmsd_logged"] / denom_metrics if n_metric_logs > 0 else float("nan"),
         "tm_score_logged": running["tm_score_logged"] / denom_metrics if n_metric_logs > 0 else float("nan"),
         "gdt_ts_logged": running["gdt_ts_logged"] / denom_metrics if n_metric_logs > 0 else float("nan"),
